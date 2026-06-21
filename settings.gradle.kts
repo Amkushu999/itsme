@@ -13,7 +13,7 @@ dependencyResolutionManagement {
         mavenCentral()
         // Xposed API repository
         maven {
-            url = uri("https://api.xposed.info/releases")
+            url = uri("https://api.xposed.info/")
         }
         // LibVLC repository from Videolan
         maven {
