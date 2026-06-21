@@ -43,21 +43,15 @@
             android:fontFamily="monospace"
             android:letterSpacing="-0.02" />
 
-        <!-- Checkmark Container -->
-        <FrameLayout
-            android:id="@+id/checkmarkContainer"
+        <!-- Animated Checkmark ImageView -->
+        <ImageView
+            android:id="@+id/ivCheckmark"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:layout_marginStart="4dp"
-            android:visibility="invisible">
-
-            <ImageView
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:src="@drawable/ic_checkmark_green"
-                android:scaleType="centerInside" />
-
-        </FrameLayout>
+            android:scaleType="centerInside"
+            android:visibility="invisible"
+            android:src="@drawable/ic_checkmark_animated" />
 
         <!-- Blinking Cursor -->
         <TextView

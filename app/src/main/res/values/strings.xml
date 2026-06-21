@@ -84,11 +84,11 @@
     <string name="ms_format">%d ms</string>
     <string name="fps">FPS</string>
     <string name="fps_format">%d FPS</string>
-    <string name="resolution">Resolution</string>
-    <string name="resolution_format">%dx%d</string>
+    <string name="resolution" formatted="false">Resolution</string>
+    <string name="resolution_format" formatted="false">%dx%d</string>
     <string name="uptime">Uptime</string>
-    <string name="uptime_days">%dd %dh %dm</string>
-    <string name="uptime_hours">%dh %dm</string>
+    <string name="uptime_days" formatted="false">%dd %dh %dm</string>
+    <string name="uptime_hours" formatted="false">%dh %dm</string>
     <string name="uptime_minutes">%dm</string>
     <string name="frame_count">Frames</string>
     <string name="decoder_type">Decoder</string>

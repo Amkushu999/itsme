@@ -2,11 +2,13 @@ package com.itsme.amkush.ui
 
 import android.animation.ValueAnimator
 import android.content.Intent
+import android.graphics.drawable.Animatable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.animation.doOnEnd
@@ -18,7 +20,7 @@ class SplashScreenActivity : AppCompatActivity() {
     private lateinit var tvPrompt: TextView
     private lateinit var tvCommand: TextView
     private lateinit var tvCursor: TextView
-    private lateinit var checkmarkContainer: View
+    private lateinit var ivCheckmark: ImageView
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -35,12 +37,12 @@ class SplashScreenActivity : AppCompatActivity() {
         tvPrompt = findViewById(R.id.tvPrompt)
         tvCommand = findViewById(R.id.tvCommand)
         tvCursor = findViewById(R.id.tvCursor)
-        checkmarkContainer = findViewById(R.id.checkmarkContainer)
+        ivCheckmark = findViewById(R.id.ivCheckmark)
     }
 
     private fun animateText() {
         handler.postDelayed({
-            tvUser.text = "admin@FaceGate"
+            tvUser.text = "user@FaceGate"
             tvPrompt.text = ":~❯ "
             tvCommand.text = "Happy Hooking"
 
@@ -56,16 +58,21 @@ class SplashScreenActivity : AppCompatActivity() {
     }
 
     private fun animateCheckmark() {
-        checkmarkContainer.visibility = View.VISIBLE
+        ivCheckmark.visibility = View.VISIBLE
+        ivCheckmark.setImageResource(R.drawable.ic_checkmark_animated)
 
+        // Start the animation
+        (ivCheckmark.drawable as? Animatable)?.start()
+
+        // Scale animation for the checkmark
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 500
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener {
                 val scale = it.animatedValue as Float
-                checkmarkContainer.scaleX = scale
-                checkmarkContainer.scaleY = scale
-                checkmarkContainer.alpha = scale
+                ivCheckmark.scaleX = scale
+                ivCheckmark.scaleY = scale
+                ivCheckmark.alpha = scale
             }
             doOnEnd {
                 handler.postDelayed({
