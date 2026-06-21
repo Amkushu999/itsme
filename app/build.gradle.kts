@@ -33,25 +33,21 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    // NEW: Use compilerOptions instead of kotlinOptions (deprecated)
-    kotlin {
-        compilerOptions {
-            jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-        }
-    }
-
     buildFeatures {
         viewBinding = true
         buildConfig = true
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 dependencies {
-    // Xposed Framework API (compileOnly - not bundled)
-    // Use JitPack for Xposed API since Maven repo may be down
-    compileOnly("com.github.Rprop:android-xposed:89")
-    // Alternative if above fails:
-    // compileOnly("de.robv.android.xposed:api:82")
+    // Xposed Framework API - compileOnly since it's not bundled in APK
+    compileOnly("de.robv.android.xposed:api:82")
 
     // Kotlin
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.20")
@@ -84,10 +80,8 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
-    // LibVLC - Use JitPack since Maven may be down
-    implementation("com.github.masterwok:libvlc-android-sdk:3.0.13")
-    // Alternative:
-    // implementation("org.videolan.android:libvlc-all:3.5.0")
+    // LibVLC - Latest STABLE version
+    implementation("org.videolan.android:libvlc-all:3.5.0")
 
     // CameraX (for hooking)
     implementation("androidx.camera:camera-core:1.4.1")
