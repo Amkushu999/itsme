@@ -15,13 +15,13 @@ dependencyResolutionManagement {
         maven {
             url = uri("https://api.xposed.info/releases")
         }
+        // LibVLC repository from Videolan
+        maven {
+            url = uri("https://artifacts.videolan.org/vlc-android/")
+        }
         // JitPack for any other dependencies
         maven {
             url = uri("https://jitpack.io")
-        }
-        // LibVLC repository
-        maven {
-            url = uri("https://raw.githubusercontent.com/videolan/vlc-android/master/")
         }
     }
 }
