@@ -68,7 +68,7 @@
             android:layout_marginTop="12dp"
             android:background="@drawable/button_gradient"
             android:gravity="center"
-            android:text="Save & Apply"
+            android:text="Save &amp; Apply"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:textStyle="bold" />
