@@ -82,7 +82,7 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
     // LibVLC - KEEP AS IS (it's working)
-    implementation("org.videolan.android:libvlc-all:3.7.4")
+    implementation("org.videolan.android:libvlc-all:3.6.5")
 
     // CameraX
     implementation("androidx.camera:camera-core:1.4.1")
