@@ -1,5 +1,6 @@
 package com.itsme.amkush.ui.fragments
 
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -94,7 +95,6 @@ class DenyListFragment : Fragment() {
                     val packageName = pkg.packageName
                     val isSystem = (pkg.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
 
-                    // Skip system apps unless they're in the deny list
                     if (isSystem && !denyList.contains(packageName)) {
                         continue
                     }
@@ -157,7 +157,6 @@ class DenyListFragment : Fragment() {
             denyList.remove(app.packageName)
             SharedPrefs.removeFromDenyList(app.packageName)
         }
-        // Update the item in adapter
         val position = filteredApps.indexOfFirst { it.packageName == app.packageName }
         if (position >= 0) {
             adapter?.notifyItemChanged(position)

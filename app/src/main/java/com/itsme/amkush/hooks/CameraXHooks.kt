@@ -1,8 +1,7 @@
 package com.itsme.amkush.hooks
 
 import android.util.Range
-import androidx.camera.core.CameraState
-import androidx.lifecycle.LiveData
+import androidx.camera.core.CameraState as CameraXState
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.MainHook
 import com.itsme.amkush.decoder.VideoDecoder
@@ -142,11 +141,10 @@ object CameraXHooks {
                         if (MainHook.isHookingActive) {
                             Logger.d("CameraX bindToLifecycle intercepted")
                             CameraState.isPreviewActive = true
-                            
+
                             val useCases = param.args.drop(2)
                             for (useCase in useCases) {
                                 readFpsFromUseCase(useCase)
-                                // Check if this use case has camera state
                                 observeCameraState(useCase)
                             }
                         }
@@ -181,7 +179,7 @@ object CameraXHooks {
                     }
                 }
             )
-            
+
             Logger.d("CameraX ImageAnalysis.setTargetFps hook installed")
         } catch (e: Throwable) {
             Logger.d("CameraX ImageAnalysis.setTargetFps hook not available")
@@ -211,7 +209,7 @@ object CameraXHooks {
                     }
                 }
             )
-            
+
             Logger.d("CameraX VideoCapture.setTargetFps hook installed")
         } catch (e: Throwable) {
             Logger.d("CameraX VideoCapture.setTargetFps hook not available")
@@ -225,33 +223,22 @@ object CameraXHooks {
                 lpparam.classLoader
             )
 
-            // Hook getCameraState to intercept state changes
             XposedHelpers.findAndHookMethod(
                 cameraClass,
                 "getCameraState",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        val state = param.result as? CameraState
+                        val state = param.result as? CameraXState
                         if (state != null) {
-                            Logger.d("CameraX CameraState: ${state.type}")
-                            
-                            // Check if camera is closed
-                            if (state.type == CameraState.Type.CLOSED) {
-                                Logger.d("CameraX camera closed - resetting state")
-                                CameraState.reset()
-                            }
-                            
-                            // Check if camera is CLOSING or OPENING
-                            when (state.type) {
-                                CameraState.Type.CLOSING -> {
-                                    Logger.d("CameraX camera closing")
+                            Logger.d("CameraX CameraState: ${state.getType()}")
+                            when (state.getType()) {
+                                CameraXState.Type.CLOSED -> {
+                                    Logger.d("CameraX camera closed - resetting state")
+                                    CameraState.reset()
                                 }
-                                CameraState.Type.OPENING -> {
-                                    Logger.d("CameraX camera opening")
-                                }
-                                CameraState.Type.OPEN -> {
-                                    Logger.d("CameraX camera open")
-                                }
+                                CameraXState.Type.CLOSING -> Logger.d("CameraX camera closing")
+                                CameraXState.Type.OPENING -> Logger.d("CameraX camera opening")
+                                CameraXState.Type.OPEN -> Logger.d("CameraX camera open")
                                 else -> {}
                             }
                         }
@@ -259,14 +246,7 @@ object CameraXHooks {
                 }
             )
 
-            // Hook the CameraState LiveData observer pattern
             try {
-                val cameraStateClass = XposedHelpers.findClass(
-                    "androidx.camera.core.CameraState",
-                    lpparam.classLoader
-                )
-
-                // Hook CameraState's observer to catch state transitions
                 val liveDataClass = XposedHelpers.findClass(
                     "androidx.lifecycle.LiveData",
                     lpparam.classLoader
@@ -279,11 +259,9 @@ object CameraXHooks {
                     XposedHelpers.findClass("androidx.lifecycle.Observer", lpparam.classLoader),
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            // Check if the observer is for CameraState
                             try {
                                 val observer = param.args[1]
                                 val observerClass = observer?.javaClass
-                                // Hook the observer's onChanged method
                                 if (observerClass != null) {
                                     XposedHelpers.findAndHookMethod(
                                         observerClass,
@@ -291,19 +269,17 @@ object CameraXHooks {
                                         Any::class.java,
                                         object : XC_MethodHook() {
                                             override fun beforeHookedMethod(param: MethodHookParam) {
-                                                val state = param.args[0] as? CameraState
-                                                if (state != null) {
-                                                    if (state.type == CameraState.Type.CLOSED) {
-                                                        Logger.d("CameraX state observer: camera CLOSED - resetting state")
-                                                        CameraState.reset()
-                                                    }
+                                                val state = param.args[0] as? CameraXState
+                                                if (state != null && state.getType() == CameraXState.Type.CLOSED) {
+                                                    Logger.d("CameraX state observer: camera CLOSED - resetting state")
+                                                    CameraState.reset()
                                                 }
                                             }
                                         }
                                     )
                                 }
                             } catch (e: Throwable) {
-                                // Observer hook may fail, just log
+                                // Ignore
                             }
                         }
                     }
@@ -324,7 +300,6 @@ object CameraXHooks {
                 lpparam.classLoader
             )
 
-            // Hook Camera.close() method
             XposedHelpers.findAndHookMethod(
                 cameraClass,
                 "close",
@@ -336,7 +311,6 @@ object CameraXHooks {
                 }
             )
 
-            // Hook CameraProvider.unbind()
             try {
                 val providerClass = XposedHelpers.findClass(
                     "androidx.camera.core.CameraProvider",
@@ -374,10 +348,8 @@ object CameraXHooks {
                     CameraState.requestedFps = max
                     VideoDecoder.setTargetFps(max)
                 }
-            } catch (e: Throwable) {
-                // Method not available
-            }
-            
+            } catch (e: Throwable) { /* Method not available */ }
+
             try {
                 val method = useCase.javaClass.getMethod("getTargetFrameRate")
                 val fps = method.invoke(useCase)
@@ -387,10 +359,8 @@ object CameraXHooks {
                     CameraState.requestedFps = max
                     VideoDecoder.setTargetFps(max)
                 }
-            } catch (e: Throwable) {
-                // Method not available
-            }
-            
+            } catch (e: Throwable) { /* Method not available */ }
+
             try {
                 val method = useCase.javaClass.getMethod("getFrameRateRange")
                 val fps = method.invoke(useCase)
@@ -400,9 +370,7 @@ object CameraXHooks {
                     CameraState.requestedFps = max
                     VideoDecoder.setTargetFps(max)
                 }
-            } catch (e: Throwable) {
-                // Method not available
-            }
+            } catch (e: Throwable) { /* Method not available */ }
         } catch (e: Throwable) {
             Logger.e("Failed to read FPS from UseCase", e)
         }
@@ -410,22 +378,15 @@ object CameraXHooks {
 
     private fun observeCameraState(useCase: Any) {
         try {
-            // Check if UseCase has getCameraState method
             try {
                 val method = useCase.javaClass.getMethod("getCameraState")
-                val state = method.invoke(useCase) as? CameraState
-                if (state != null) {
-                    if (state.type == CameraState.Type.CLOSED) {
-                        Logger.d("CameraX UseCase: camera CLOSED - resetting state")
-                        CameraState.reset()
-                    }
+                val state = method.invoke(useCase) as? CameraXState
+                if (state != null && state.getType() == CameraXState.Type.CLOSED) {
+                    Logger.d("CameraX UseCase: camera CLOSED - resetting state")
+                    CameraState.reset()
                 }
-            } catch (e: Throwable) {
-                // Method not available
-            }
-        } catch (e: Throwable) {
-            // Ignore
-        }
+            } catch (e: Throwable) { /* Method not available */ }
+        } catch (e: Throwable) { /* Ignore */ }
     }
 
     private fun createFakeImageProxy(original: Any): Any? {

@@ -2,6 +2,7 @@ package com.itsme.amkush
 
 import android.content.Context
 import de.robv.android.xposed.IXposedHookLoadPackage
+import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
 import com.itsme.amkush.hooks.*
@@ -138,7 +139,7 @@ class MainHook : IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(
                 applicationClass,
                 "onCreate",
-                object : XposedHelpers.XC_MethodHook() {
+                object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         context = param.thisObject as Context
                         SharedPrefs.init(context)

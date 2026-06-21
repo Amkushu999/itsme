@@ -1,9 +1,9 @@
 package com.itsme.amkush.decoder
 
 import android.graphics.Bitmap
+import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.media.Image
-import android.media.ImageFormat
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaExtractor
@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Log
 import com.itsme.amkush.MainHook
 import com.itsme.amkush.utils.Logger
 import java.io.ByteArrayOutputStream
@@ -21,7 +22,7 @@ import java.util.concurrent.TimeUnit
 object VideoDecoder {
 
     private const val TAG = "FaceGate"
-    
+
     private var decoderThread: HandlerThread? = null
     private var decoderHandler: Handler? = null
     private var deliveryHandler: Handler? = null
@@ -30,7 +31,7 @@ object VideoDecoder {
     private var currentSource: String? = null
     private var reconnectAttempts = 0
     private var maxReconnectAttempts = 5
-    
+
     private var panX: Float = 0f
     private var panY: Float = 0f
     private var zoom: Float = 1f
@@ -41,9 +42,9 @@ object VideoDecoder {
     private var frameIndex: Int = 0
     private var lastFpsUpdateTime: Long = 0
     private var framesSinceLastFpsUpdate: Int = 0
-    
+
     private val mQueue = LinkedBlockingQueue<ByteArray>()
-    
+
     interface Callback {
         fun onDecodeFrame(frame: ByteArray, index: Int)
         fun onFinishDecode()
@@ -53,13 +54,13 @@ object VideoDecoder {
         fun onDecoderTypeChanged(type: String)
         fun onReconnecting(attempt: Int)
     }
-    
+
     private var callback: Callback? = null
 
     private val decodeRunnable = Runnable {
         decodeLoopWithRetry()
     }
-    
+
     private val deliveryRunnable = Runnable {
         deliveryLoop()
     }
@@ -67,7 +68,7 @@ object VideoDecoder {
     fun setCallback(callback: Callback?) {
         this.callback = callback
     }
-    
+
     fun getQueue(): LinkedBlockingQueue<ByteArray> = mQueue
 
     fun startStream(url: String) {
@@ -98,35 +99,35 @@ object VideoDecoder {
         Logger.d("VideoDecoder stopped")
         callback?.onFinishDecode()
     }
-    
+
     fun setPanZoom(panX: Float, panY: Float, zoom: Float) {
         this.panX = panX
         this.panY = panY
         this.zoom = zoom
     }
-    
+
     fun setTargetFormat(format: Int) {
         this.targetFormat = format
     }
-    
+
     fun setTargetSize(width: Int, height: Int) {
         this.targetWidth = width
         this.targetHeight = height
     }
-    
+
     fun setTargetFps(fps: Int) {
         if (fps > 0 && fps != this.targetFps) {
             this.targetFps = fps
             Logger.d("Target FPS updated to: $fps")
             callback?.onFpsChanged(fps)
-            
+
             if (isDecoding) {
                 deliveryHandler?.removeCallbacks(deliveryRunnable)
                 deliveryHandler?.post(deliveryRunnable)
             }
         }
     }
-    
+
     fun getTargetFps(): Int = targetFps
     fun getFrameCount(): Int = frameIndex
     fun getQueueSize(): Int = mQueue.size
@@ -137,20 +138,20 @@ object VideoDecoder {
         }
 
         decoderThread = HandlerThread("FaceGateDecoder").apply { start() }
-        decoderHandler = Handler(decoderThread?.looper)
-        
+        decoderHandler = Handler(decoderThread?.looper!!)
+
         deliveryThread = HandlerThread("FaceGateDelivery").apply { start() }
-        deliveryHandler = Handler(deliveryThread?.looper)
+        deliveryHandler = Handler(deliveryThread?.looper!!)
 
         isDecoding = true
         frameIndex = 0
         mQueue.clear()
         framesSinceLastFpsUpdate = 0
         lastFpsUpdateTime = System.currentTimeMillis()
-        
+
         decoderHandler?.post(decodeRunnable)
         deliveryHandler?.post(deliveryRunnable)
-        
+
         Logger.d("VideoDecoder started with target FPS: $targetFps")
         callback?.onFpsChanged(targetFps)
     }
@@ -170,7 +171,7 @@ object VideoDecoder {
                 reconnectAttempts++
                 Logger.e("Decode error (attempt $reconnectAttempts/$maxReconnectAttempts)", e)
                 callback?.onError("Reconnection attempt $reconnectAttempts: ${e.message}")
-                
+
                 if (reconnectAttempts >= maxReconnectAttempts) {
                     callback?.onError("Max reconnection attempts ($maxReconnectAttempts) reached")
                     break
@@ -216,7 +217,7 @@ object VideoDecoder {
 
             decoder = MediaCodec.createDecoderByType(mime)
             logDecoderType(decoder, mime)
-            
+
             val caps = decoder.codecInfo.getCapabilitiesForType(mime)
 
             val colorFormat = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
@@ -247,48 +248,61 @@ object VideoDecoder {
             extractor?.release()
         }
     }
-    
+
     private fun logDecoderType(decoder: MediaCodec, mime: String) {
         try {
             val info = decoder.codecInfo
             val caps = info.getCapabilitiesForType(mime)
-            
+
+            // Note: isHardwareAccelerated, isSoftwareOnly, isVendor require API 29+
+            // For older APIs, use name detection
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val isHardware = caps.isHardwareAccelerated()
-                val isSoftware = caps.isSoftwareOnly()
-                val isVendor = caps.isVendor()
-                
-                val type = when {
-                    isHardware -> "HARDWARE"
-                    isSoftware -> "SOFTWARE"
-                    else -> "UNKNOWN"
+                // These APIs are available on API 29+
+                // Use reflection to avoid compilation errors on older SDKs
+                try {
+                    val isHardware = caps.javaClass.getMethod("isHardwareAccelerated").invoke(caps) as? Boolean ?: false
+                    val isSoftware = caps.javaClass.getMethod("isSoftwareOnly").invoke(caps) as? Boolean ?: false
+                    val isVendor = caps.javaClass.getMethod("isVendor").invoke(caps) as? Boolean ?: false
+
+                    val type = when {
+                        isHardware -> "HARDWARE"
+                        isSoftware -> "SOFTWARE"
+                        else -> "UNKNOWN"
+                    }
+
+                    Logger.d("Decoder: $mime -> $type (Hardware=$isHardware, Software=$isSoftware, Vendor=$isVendor)")
+                    callback?.onDecoderTypeChanged(type)
+                } catch (e: Exception) {
+                    // Reflection failed
+                    fallbackDecoderDetection(info, mime)
                 }
-                
-                Logger.d("Decoder: $mime -> $type (Hardware=$isHardware, Software=$isSoftware, Vendor=$isVendor)")
-                callback?.onDecoderTypeChanged(type)
             } else {
-                val name = info.name
-                val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
-                val type = if (isSoftware) "SOFTWARE" else "HARDWARE"
-                Logger.d("Decoder: $name -> $type")
-                callback?.onDecoderTypeChanged(type)
+                fallbackDecoderDetection(info, mime)
             }
         } catch (e: Exception) {
             Logger.e("Failed to detect decoder type", e)
         }
     }
-    
+
+    private fun fallbackDecoderDetection(info: MediaCodecInfo, mime: String) {
+        val name = info.name
+        val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
+        val type = if (isSoftware) "SOFTWARE" else "HARDWARE"
+        Logger.d("Decoder: $name -> $type")
+        callback?.onDecoderTypeChanged(type)
+    }
+
     private fun deliveryLoop() {
         Logger.d("Delivery loop started at ${targetFps}FPS")
         val intervalMs = if (targetFps > 0) 1000 / targetFps else 33
-        
+
         while (isDecoding) {
             try {
                 val frame = mQueue.poll(intervalMs.toLong(), TimeUnit.MILLISECONDS)
-                
+
                 if (frame != null && frame.isNotEmpty()) {
                     MainHook.dataBuffer = frame
-                    
+
                     framesSinceLastFpsUpdate++
                     val now = System.currentTimeMillis()
                     if (now - lastFpsUpdateTime >= 1000) {
@@ -296,16 +310,16 @@ object VideoDecoder {
                         framesSinceLastFpsUpdate = 0
                         lastFpsUpdateTime = now
                     }
-                    
+
                     callback?.onDecodeFrame(frame, frameIndex)
                     callback?.onQueueSizeChanged(mQueue.size)
                     frameIndex++
                 }
-                
+
                 if (frame == null) {
                     Thread.sleep(1)
                 }
-                
+
             } catch (e: InterruptedException) {
                 Logger.d("Delivery loop interrupted")
                 break
@@ -450,7 +464,7 @@ object VideoDecoder {
         val imageBytes = out.toByteArray()
         return android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
     }
-    
+
     private fun applyPanZoomToBitmap(bitmap: Bitmap): Bitmap {
         val matrix = Matrix()
         matrix.postScale(zoom, zoom)

@@ -134,7 +134,7 @@ class StreamSetupFragment : Fragment() {
         }
 
         if (!savedUrl.isNullOrEmpty()) {
-            btnSave.text = getString(R.string.saved)
+            btnSave.text = getString(R.string.stream_saved)
         } else {
             btnSave.text = getString(R.string.save_apply)
         }

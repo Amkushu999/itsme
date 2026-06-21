@@ -1,5 +1,6 @@
 package com.itsme.amkush.ui
 
+import android.content.Context
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -13,7 +14,7 @@ import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
 import kotlinx.coroutines.launch
 
-class HomeViewModel : ViewModel() {
+class HomeViewModel(private val context: Context) : ViewModel() {
 
     private val _tokenStatus = MutableLiveData<Response<Boolean>>(Response.Loading)
     val tokenStatus: LiveData<Response<Boolean>> = _tokenStatus
@@ -50,7 +51,7 @@ class HomeViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val apiService = ApiClient.getApiService()
-                val deviceId = DeviceUtils.getDeviceId(androidx.core.app.CoreComponentFactory())
+                val deviceId = DeviceUtils.getDeviceId(context)
                 val request = TokenRequest(token, deviceId)
                 val response = apiService.verifyToken(request).execute()
 

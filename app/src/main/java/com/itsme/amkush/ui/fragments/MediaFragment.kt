@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -20,11 +21,6 @@ import com.itsme.amkush.R
 import com.itsme.amkush.services.InjectionService
 import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
-import com.itsme.amkush.decoder.VideoDecoder
-import android.widget.VideoView
-import android.media.MediaPlayer
-import android.net.Uri
-import android.widget.MediaController
 
 class MediaFragment : Fragment() {
 
@@ -128,12 +124,11 @@ class MediaFragment : Fragment() {
     private fun displayMedia(uri: Uri) {
         try {
             val mimeType = requireContext().contentResolver.getType(uri)
-            
+
             if (mimeType?.startsWith("video/") == true) {
-                // Show VideoView for video playback
                 videoView.visibility = View.VISIBLE
                 ivPreview.visibility = View.GONE
-                
+
                 videoView.setVideoURI(uri)
                 videoView.setOnPreparedListener { mp ->
                     mp.isLooping = true
@@ -144,25 +139,23 @@ class MediaFragment : Fragment() {
                     Logger.e("VideoView error: what=$what, extra=$extra")
                     false
                 }
-                
-                // Add media controls
+
                 val mediaController = MediaController(requireContext())
                 mediaController.setAnchorView(videoView)
                 videoView.setMediaController(mediaController)
-                
+
                 tvFileName.text = "🎬 $selectedFileName"
-                
+
             } else {
-                // Show ImageView for images
                 videoView.visibility = View.GONE
                 ivPreview.visibility = View.VISIBLE
-                
+
                 Glide.with(this)
                     .load(uri)
                     .placeholder(R.drawable.ic_media)
                     .error(R.drawable.ic_media)
                     .into(ivPreview)
-                
+
                 tvFileName.text = selectedFileName ?: "Media selected"
             }
         } catch (e: Exception) {
@@ -327,7 +320,7 @@ class MediaFragment : Fragment() {
         }
 
         if (selectedUri == null) {
-            Toast.makeText(requireContext(), R.string.no_media_selected_error, ToastLength.SHORT).show()
+            Toast.makeText(requireContext(), R.string.no_media_selected_error, Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -342,7 +335,7 @@ class MediaFragment : Fragment() {
         requireContext().startService(intent)
 
         val appName = targetAppName ?: SharedPrefs.getTargetAppName()
-        Toast.makeText(requireContext(), getString(R.string.injection_started, appName), ToastLength.SHORT).show()
+        Toast.makeText(requireContext(), getString(R.string.injection_started, appName), Toast.LENGTH_SHORT).show()
         progressBar.visibility = View.GONE
     }
 
@@ -353,7 +346,7 @@ class MediaFragment : Fragment() {
 
         InjectionService.stop(requireContext())
 
-        Toast.makeText(requireContext(), R.string.injection_stopped, ToastLength.SHORT).show()
+        Toast.makeText(requireContext(), R.string.injection_stopped, Toast.LENGTH_SHORT).show()
         progressBar.visibility = View.GONE
     }
 
