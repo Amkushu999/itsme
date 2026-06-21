@@ -46,7 +46,7 @@ kotlin {
 }
 
 dependencies {
-    // Xposed Framework API - compileOnly since it's not bundled in APK
+    // Xposed Framework API - Using compileOnly for API only
     compileOnly("de.robv.android.xposed:api:82")
 
     // Kotlin
@@ -80,7 +80,7 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
-    // LibVLC - Latest STABLE version
+    // LibVLC - Using the official Videolan Maven repository
     implementation("org.videolan.android:libvlc-all:3.5.0")
 
     // CameraX (for hooking)
