@@ -138,10 +138,10 @@ object VideoDecoder {
         }
 
         decoderThread = HandlerThread("FaceGateDecoder").apply { start() }
-        decoderHandler = Handler(decoderThread?.looper!!)
+        decoderHandler = Handler(decoderThread!!.looper)
 
         deliveryThread = HandlerThread("FaceGateDelivery").apply { start() }
-        deliveryHandler = Handler(deliveryThread?.looper!!)
+        deliveryHandler = Handler(deliveryThread!!.looper)
 
         isDecoding = true
         frameIndex = 0
@@ -462,7 +462,8 @@ object VideoDecoder {
         val rect = android.graphics.Rect(0, 0, image.width, image.height)
         yuvImage.compressToJpeg(rect, 75, out)
         val imageBytes = out.toByteArray()
-        return android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        return if (zoom != 1f || panX != 0f || panY != 0f) applyPanZoomToBitmap(bitmap) else bitmap
     }
 
     private fun applyPanZoomToBitmap(bitmap: Bitmap): Bitmap {
