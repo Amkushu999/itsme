@@ -74,8 +74,9 @@ object Camera1Hooks {
 
                     VideoDecoder.setTargetFormat(CameraState.currentFormat)
 
-                    val fpsRange = params.getPreviewFpsRange()
-                    if (fpsRange != null && fpsRange.size >= 2) {
+                    val fpsRange = IntArray(2)
+                    params.getPreviewFpsRange(fpsRange)
+                    if (fpsRange.size >= 2) {
                         val maxFps = fpsRange[1] / 1000
                         CameraState.requestedFps = maxFps
                         VideoDecoder.setTargetFps(maxFps)
