@@ -209,7 +209,7 @@ object RootBypassHooks {
             val result = param.result as? List<*>
             if (result != null) {
                 val filtered = result.filter { item ->
-                    val pkgName = getPackageNameFromItem(item)
+                    val pkgName = getPackageNameFromItem(item!!)
                     !rootPackages.contains(pkgName)
                 }
                 param.result = filtered
