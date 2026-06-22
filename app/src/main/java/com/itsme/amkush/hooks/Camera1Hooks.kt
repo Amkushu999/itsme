@@ -392,6 +392,25 @@ object Camera1Hooks {
     }
 
     private fun getFakeJpeg(): ByteArray? {
-        return null
+        val buffer = MainHook.dataBuffer
+        if (buffer.isEmpty()) return null
+
+        return try {
+            if (buffer.size >= 2 && buffer[0] == 0xFF.toByte() && buffer[1] == 0xD8.toByte()) {
+                buffer
+            } else {
+                val width = CameraState.currentWidth.takeIf { it > 0 } ?: 640
+                val height = CameraState.currentHeight.takeIf { it > 0 } ?: 480
+                val yuvImage = android.graphics.YuvImage(
+                    buffer, android.graphics.ImageFormat.NV21, width, height, null
+                )
+                val stream = java.io.ByteArrayOutputStream()
+                yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 90, stream)
+                stream.toByteArray()
+            }
+        } catch (e: Exception) {
+            Logger.e("getFakeJpeg failed", e)
+            null
+        }
     }
 }
