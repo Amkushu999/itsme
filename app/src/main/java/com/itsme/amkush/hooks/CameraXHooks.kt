@@ -390,6 +390,28 @@ object CameraXHooks {
     }
 
     private fun createFakeImageProxy(original: Any): Any? {
-        return null
+        if (MainHook.dataBuffer.isEmpty()) return null
+        return try {
+            val planesMethod = original.javaClass.getMethod("getPlanes")
+            val planes = planesMethod.invoke(original) as? Array<*> ?: return null
+            if (planes.isEmpty()) return null
+
+            val plane = planes[0] ?: return null
+            val bufferMethod = plane.javaClass.getMethod("getBuffer")
+            val byteBuffer = bufferMethod.invoke(plane) as? java.nio.ByteBuffer ?: return null
+
+            if (byteBuffer.isReadOnly) return null
+
+            val src = MainHook.dataBuffer
+            val copyLen = minOf(src.size, byteBuffer.capacity())
+            byteBuffer.clear()
+            byteBuffer.put(src, 0, copyLen)
+            byteBuffer.rewind()
+
+            original
+        } catch (e: Throwable) {
+            Logger.e("createFakeImageProxy failed", e)
+            null
+        }
     }
 }
