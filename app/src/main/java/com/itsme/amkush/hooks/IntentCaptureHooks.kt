@@ -342,7 +342,7 @@ object IntentCaptureHooks {
             if (inputStream == null || outputStream == null) {
                 Logger.e("Failed to open streams for video copy")
                 inputStream?.close()
-                outputStream.close()
+                outputStream?.close()
                 return
             }
 
