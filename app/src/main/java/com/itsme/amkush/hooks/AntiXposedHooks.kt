@@ -238,7 +238,7 @@ object AntiXposedHooks {
             val result = param.result as? List<*>
             if (result != null) {
                 val filtered = result.filter { item ->
-                    val pkgName = getPackageNameFromItem(item)
+                    val pkgName = getPackageNameFromItem(item!!)
                     !xposedPackages.contains(pkgName)
                 }
                 param.result = filtered
