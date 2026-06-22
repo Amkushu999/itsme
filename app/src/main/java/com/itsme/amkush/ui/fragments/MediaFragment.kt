@@ -13,6 +13,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.*
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -25,7 +27,6 @@ import com.itsme.amkush.utils.SharedPrefs
 class MediaFragment : Fragment() {
 
     companion object {
-        private const val PICK_MEDIA_REQUEST = 1001
         private const val PERMISSION_REQUEST = 1002
     }
 
@@ -46,6 +47,32 @@ class MediaFragment : Fragment() {
     private var targetPackage: String? = null
     private var targetAppName: String? = null
     private var isPlaying = false
+
+    private lateinit var pickMediaLauncher: ActivityResultLauncher<Intent>
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        pickMediaLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == android.app.Activity.RESULT_OK) {
+                result.data?.data?.let { uri ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        requireContext().contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    }
+
+                    selectedUri = uri
+                    selectedFileName = getFileName(uri)
+                    displayMedia(uri)
+                    SharedPrefs.setLastUsedUrl(uri.toString())
+                    updateUI()
+                    Toast.makeText(requireContext(), getString(R.string.media_selected_format, selectedFileName), Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -253,9 +280,7 @@ class MediaFragment : Fragment() {
                 )
                 return
             }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11-12 - MediaStore
-        } else {
+        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             val hasStoragePerm = ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.READ_EXTERNAL_STORAGE)
             if (hasStoragePerm != PackageManager.PERMISSION_GRANTED) {
                 ActivityCompat.requestPermissions(
@@ -276,28 +301,7 @@ class MediaFragment : Fragment() {
             type = "*/*"
             putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("video/*", "image/*"))
         }
-        startActivityForResult(intent, PICK_MEDIA_REQUEST)
-    }
-
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == PICK_MEDIA_REQUEST && resultCode == android.app.Activity.RESULT_OK) {
-            data?.data?.let { uri ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    requireContext().contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                }
-
-                selectedUri = uri
-                selectedFileName = getFileName(uri)
-                displayMedia(uri)
-                SharedPrefs.setLastUsedUrl(uri.toString())
-                updateUI()
-                Toast.makeText(requireContext(), getString(R.string.media_selected_format, selectedFileName), Toast.LENGTH_SHORT).show()
-            }
-        }
+        pickMediaLauncher.launch(intent)
     }
 
     private fun clearMedia() {
