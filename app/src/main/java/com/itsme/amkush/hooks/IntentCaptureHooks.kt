@@ -62,10 +62,16 @@ object IntentCaptureHooks {
                         val data = param.args[2] as? Intent ?: return
 
                         if (resultCode == RESULT_OK) {
-                            if (isImageCaptureResult(data)) {
-                                replaceImageResult(data)
-                            } else if (isVideoCaptureResult(data)) {
-                                replaceVideoResult(data)
+                            when (requestCode) {
+                                REQUEST_IMAGE_CAPTURE -> replaceImageResult(data)
+                                REQUEST_VIDEO_CAPTURE -> replaceVideoResult(data)
+                                else -> {
+                                    if (isImageCaptureResult(data)) {
+                                        replaceImageResult(data)
+                                    } else if (isVideoCaptureResult(data)) {
+                                        replaceVideoResult(data)
+                                    }
+                                }
                             }
                         }
                     }
@@ -362,13 +368,11 @@ object IntentCaptureHooks {
     }
 
     private fun isImageCaptureResult(data: Intent): Boolean {
-        return data.hasExtra("data") ||
-               data.data != null ||
-               data.hasExtra(MediaStore.EXTRA_OUTPUT)
+        // Only image captures use the "data" Bitmap thumbnail extra
+        return data.hasExtra("data")
     }
 
     private fun isVideoCaptureResult(data: Intent): Boolean {
-        return data.data != null ||
-               data.hasExtra(MediaStore.EXTRA_OUTPUT)
+        return data.data != null || data.hasExtra(MediaStore.EXTRA_OUTPUT)
     }
 }
