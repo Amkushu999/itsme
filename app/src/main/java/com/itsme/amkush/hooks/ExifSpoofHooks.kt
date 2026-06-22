@@ -475,6 +475,11 @@ object ExifSpoofHooks {
     }
 
     private fun refreshDeviceGps() {
+        val now = System.currentTimeMillis()
+        if (now - lastGpsUpdate < GPS_CACHE_MS && cachedLatitude != null) {
+            return
+        }
+
         try {
             val context = MainHook.context
             if (context == null) {
