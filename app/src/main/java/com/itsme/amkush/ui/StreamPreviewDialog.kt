@@ -106,14 +106,8 @@ class StreamPreviewDialog : DialogFragment() {
             "--input-repeat=-1"
         )
 
-        libVLC = LibVLC(requireContext(), args)
+        libVLC = LibVLC(requireContext(), ArrayList(args.toList()))
         mediaPlayer = MediaPlayer(libVLC)
-
-        mediaPlayer?.setVideoLayout(
-            MediaPlayer.VideoLayout.FILL,
-            videoLayout.width,
-            videoLayout.height
-        )
 
         mediaPlayer?.setEventListener { event ->
             when (event.type) {
@@ -147,7 +141,7 @@ class StreamPreviewDialog : DialogFragment() {
             }
         }
 
-        videoLayout.setMediaPlayer(mediaPlayer)
+        mediaPlayer?.attachViews(videoLayout, null, false, false)
     }
 
     private fun startPlayback() {
@@ -199,6 +193,7 @@ class StreamPreviewDialog : DialogFragment() {
     override fun onDestroy() {
         super.onDestroy()
         mediaPlayer?.stop()
+        mediaPlayer?.detachViews()
         mediaPlayer?.release()
         media?.release()
         libVLC?.release()
