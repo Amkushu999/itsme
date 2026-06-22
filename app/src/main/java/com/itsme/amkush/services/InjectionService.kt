@@ -32,7 +32,7 @@ class InjectionService : Service() {
                 } else {
                     context.startService(intent)
                 }
-                isRunning = true
+                // isRunning is set in onCreate() after the service actually starts
             }
         }
 
@@ -47,6 +47,7 @@ class InjectionService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         Logger.d("InjectionService created")
