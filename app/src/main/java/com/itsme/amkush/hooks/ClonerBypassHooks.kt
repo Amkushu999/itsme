@@ -8,9 +8,7 @@ import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 
 object ClonerBypassHooks {
 
@@ -523,18 +521,14 @@ object ClonerBypassHooks {
     }
 
     private fun checkIfRealMount(path: String): Boolean {
-        try {
-            val process = Runtime.getRuntime().exec("cat $path")
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            val content = reader.readText()
-            reader.close()
-
+        return try {
+            val content = File(path).readText()
             val clonerMounts = listOf(
                 "mochi", "clone", "parallel", "virtual", "space", "multiaccounts"
             )
-            return !clonerMounts.any { content.contains(it) }
+            !clonerMounts.any { content.contains(it) }
         } catch (e: Throwable) {
-            return true
+            true
         }
     }
 
