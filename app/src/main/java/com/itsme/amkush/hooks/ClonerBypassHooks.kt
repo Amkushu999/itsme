@@ -268,7 +268,7 @@ object ClonerBypassHooks {
             val result = param.result as? List<*>
             if (result != null) {
                 val filtered = result.filter { item ->
-                    val pkgName = getPackageNameFromItem(item)
+                    val pkgName = getPackageNameFromItem(item!!)
                     !clonerPackages.contains(pkgName)
                 }
                 param.result = filtered
