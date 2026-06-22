@@ -47,7 +47,7 @@ object DenyListHooks {
                     val result = param.result as? List<*>
                     result?.let { apps ->
                         val filtered = apps.filter { appInfo ->
-                            val packageName = getPackageName(appInfo)
+                            val packageName = getPackageName(appInfo!!)
                             !denyList.contains(packageName)
                         }
                         param.result = filtered
@@ -67,7 +67,7 @@ object DenyListHooks {
                     val result = param.result as? List<*>
                     result?.let { packages ->
                         val filtered = packages.filter { pkgInfo ->
-                            val packageName = getPackageNameFromPackageInfo(pkgInfo)
+                            val packageName = getPackageNameFromPackageInfo(pkgInfo!!)
                             !denyList.contains(packageName)
                         }
                         param.result = filtered
