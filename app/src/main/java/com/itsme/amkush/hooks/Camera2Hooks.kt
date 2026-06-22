@@ -336,7 +336,7 @@ object Camera2Hooks {
                 }
             } else {
                 try {
-                    val surface = output.javaClass.getMethod("getSurface").invoke(output) as? Surface
+                    val surface = output?.javaClass?.getMethod("getSurface")?.invoke(output) as? Surface
                     if (surface != null) {
                         virtualSurfaceMap[surface] = virtualSurface
                         Logger.d("All Surface Tracking (reflection): $surface -> virtual")
@@ -374,7 +374,7 @@ object Camera2Hooks {
 
     private fun hookOnImageAvailableListener(lpparam: XC_LoadPackage.LoadPackageParam) {
         val listenerClass = XposedHelpers.findClass(
-            "android.media.ImageReader$OnImageAvailableListener",
+            "android.media.ImageReader${'$'}OnImageAvailableListener",
             lpparam.classLoader
         )
 
@@ -460,7 +460,7 @@ object Camera2Hooks {
                 sessionClass,
                 "setRepeatingRequest",
                 XposedHelpers.findClass("android.hardware.camera2.CaptureRequest", lpparam.classLoader),
-                XposedHelpers.findClass("android.hardware.camera2.CameraCaptureSession$CaptureCallback", lpparam.classLoader),
+                XposedHelpers.findClass("android.hardware.camera2.CameraCaptureSession${'$'}CaptureCallback", lpparam.classLoader),
                 android.os.Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
