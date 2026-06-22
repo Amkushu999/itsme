@@ -1,9 +1,10 @@
 package com.itsme.amkush.ui
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -16,14 +17,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.bumptech.glide.Glide
-import com.bumptech.glide.request.target.CustomTarget
-import com.bumptech.glide.request.transition.Transition
 import com.itsme.amkush.R
 import com.itsme.amkush.model.AppInfo
 import com.itsme.amkush.network.ApiClient
 import com.itsme.amkush.network.models.TokenRequest
-import com.itsme.amkush.network.models.ValidateRequest
 import com.itsme.amkush.utils.DeviceUtils
 import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
@@ -43,6 +40,7 @@ class HomeScreen : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var tvDeviceId: TextView
     private lateinit var progressBar: ProgressBar
+    private lateinit var btnCopyDeviceId: TextView
 
     private val appList = mutableListOf<AppInfo>()
     private val filteredApps = mutableListOf<AppInfo>()
@@ -59,6 +57,7 @@ class HomeScreen : AppCompatActivity() {
         initViews()
         setupRecyclerView()
         setupSearch()
+        setupCopyButton()
         loadInstalledApps()
         loadSavedTarget()
         loadDeviceId()
@@ -88,6 +87,21 @@ class HomeScreen : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         tvDeviceId = findViewById(R.id.tvDeviceId)
         progressBar = findViewById(R.id.progressBar)
+        btnCopyDeviceId = findViewById(R.id.btnCopyDeviceId)
+    }
+
+    private fun setupCopyButton() {
+        btnCopyDeviceId.setOnClickListener {
+            val deviceId = tvDeviceId.text.toString()
+            if (deviceId != "---" && deviceId.isNotEmpty()) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val clip = ClipData.newPlainText("Device ID", deviceId)
+                clipboard.setPrimaryClip(clip)
+                Toast.makeText(this, "Device ID copied to clipboard!", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "No Device ID to copy", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun setupRecyclerView() {
@@ -120,6 +134,9 @@ class HomeScreen : AppCompatActivity() {
     @SuppressLint("QueryPermissionsNeeded")
     private fun loadInstalledApps() {
         progressBar.visibility = View.VISIBLE
+        rvApps.visibility = View.GONE
+        searchInput.visibility = View.GONE
+
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val packageManager = packageManager
@@ -131,11 +148,7 @@ class HomeScreen : AppCompatActivity() {
                     val packageName = pkg.packageName
                     val isSystem = (pkg.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
 
-                    // Skip system apps and launcher
-                    if (isSystem && !packageName.contains("whatsapp") && !packageName.contains("instagram")) {
-                        continue
-                    }
-
+                    // ✅ Show ALL apps - no filtering
                     val icon = packageManager.getApplicationIcon(pkg)
                     apps.add(AppInfo(packageName, appName, icon, isSystem))
                 }
@@ -150,6 +163,12 @@ class HomeScreen : AppCompatActivity() {
                     filteredApps.addAll(apps)
                     adapter?.notifyDataSetChanged()
                     progressBar.visibility = View.GONE
+
+                    // ✅ Show the list and search bar
+                    rvApps.visibility = View.VISIBLE
+                    searchInput.visibility = View.VISIBLE
+
+                    Logger.d("Loaded ${apps.size} apps")
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -189,6 +208,7 @@ class HomeScreen : AppCompatActivity() {
         // Show selected container
         selectedAppContainer.visibility = View.VISIBLE
         rvApps.visibility = View.GONE
+        searchInput.visibility = View.GONE
 
         // Save to SharedPrefs
         SharedPrefs.setTargetPackage(app.packageName)
