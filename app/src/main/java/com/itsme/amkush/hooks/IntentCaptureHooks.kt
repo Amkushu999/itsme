@@ -201,8 +201,8 @@ object IntentCaptureHooks {
                 if (outputUri != null) {
                     // Write the uploaded image to the output URI as JPEG
                     val outputStream = context.contentResolver.openOutputStream(outputUri)
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
-                    outputStream?.close()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream!!)
+                    outputStream.close()
                     Logger.d("Replaced full image with uploaded image at: $outputUri")
                 }
                 return
@@ -212,8 +212,8 @@ object IntentCaptureHooks {
             val imageUri = data.data
             if (imageUri != null) {
                 val outputStream = context.contentResolver.openOutputStream(imageUri)
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
-                outputStream?.close()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream!!)
+                outputStream.close()
                 Logger.d("Replaced image data URI with uploaded image at: $imageUri")
             }
 
@@ -244,8 +244,8 @@ object IntentCaptureHooks {
                 val outputUri = data.getParcelableExtra<Uri>(MediaStore.EXTRA_OUTPUT)
                 if (outputUri != null) {
                     val outputStream = context.contentResolver.openOutputStream(outputUri)
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
-                    outputStream?.close()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream!!)
+                    outputStream.close()
                     Logger.d("Replaced full image with video frame at: $outputUri")
                 }
                 return
@@ -255,8 +255,8 @@ object IntentCaptureHooks {
             val imageUri = data.data
             if (imageUri != null) {
                 val outputStream = context.contentResolver.openOutputStream(imageUri)
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
-                outputStream?.close()
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream!!)
+                outputStream.close()
                 Logger.d("Replaced image data URI with video frame at: $imageUri")
             }
 
@@ -342,7 +342,7 @@ object IntentCaptureHooks {
             if (inputStream == null || outputStream == null) {
                 Logger.e("Failed to open streams for video copy")
                 inputStream?.close()
-                outputStream?.close()
+                outputStream.close()
                 return
             }
 
