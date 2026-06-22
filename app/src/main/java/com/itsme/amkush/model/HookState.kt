@@ -26,9 +26,9 @@ enum class HookState {
 }
 
 /**
- * Data class for hook status information
+ * Data class for camera hook status information (injection state tracking)
  */
-data class HookStatus(
+data class CameraHookInfo(
     val state: HookState = HookState.IDLE,
     val targetPackage: String? = null,
     val targetAppName: String? = null,
@@ -59,16 +59,16 @@ data class HookStatus(
     }
 
     companion object {
-        fun waiting(packageName: String, appName: String): HookStatus {
-            return HookStatus(
+        fun waiting(packageName: String, appName: String): CameraHookInfo {
+            return CameraHookInfo(
                 state = HookState.WAITING,
                 targetPackage = packageName,
                 targetAppName = appName
             )
         }
 
-        fun injecting(packageName: String, appName: String): HookStatus {
-            return HookStatus(
+        fun injecting(packageName: String, appName: String): CameraHookInfo {
+            return CameraHookInfo(
                 state = HookState.INJECTING,
                 targetPackage = packageName,
                 targetAppName = appName,
@@ -76,8 +76,8 @@ data class HookStatus(
             )
         }
 
-        fun error(message: String): HookStatus {
-            return HookStatus(
+        fun error(message: String): CameraHookInfo {
+            return CameraHookInfo(
                 state = HookState.ERROR,
                 errorMessage = message
             )
