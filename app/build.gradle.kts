@@ -91,9 +91,9 @@ dependencies {
     // Preferences
     implementation("androidx.preference:preference-ktx:1.2.1")
 
-    // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    // Coroutines — 1.11.0 is the first release targeting Kotlin 2.1+ (required for 2.3.0 compiler)
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     // Storage
     implementation("androidx.documentfile:documentfile:1.0.1")
