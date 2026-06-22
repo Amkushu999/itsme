@@ -177,9 +177,16 @@ class PaymentScreen : AppCompatActivity() {
                             SharedPrefs.setActivationToken(token)
                             SharedPrefs.setTrial(true)
                             SharedPrefs.setPaid(false)
-                            // Trial expiry is handled by server, but we store it
-                            body.expiresAt?.let {
-                                // Parse and store expiry
+                            // Parse and store trial expiry so checkForTrialKey() works on next launch
+                            body.expiresAt?.let { expiresAtStr ->
+                                try {
+                                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                    val date = sdf.parse(expiresAtStr)
+                                    if (date != null) SharedPrefs.setTrialExpiry(date.time)
+                                } catch (e: Exception) {
+                                    Logger.e("Failed to parse trial expiry: $expiresAtStr", e)
+                                }
                             }
                             showActivationSuccess()
                         }
