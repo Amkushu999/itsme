@@ -28,56 +28,54 @@ object SharedPrefs {
     private const val KEY_SPOOF_SERIAL = "spoof_serial"
     private const val KEY_LAST_USED_URL = "last_used_url"
 
-    private lateinit var prefs: SharedPreferences
+    @Volatile private var prefs: SharedPreferences? = null
 
     fun init(context: Context) {
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 
+    fun isInitialized(): Boolean = prefs != null
+
+    private val p: SharedPreferences?
+        get() {
+            if (prefs == null) Logger.e("SharedPrefs.init() not called before use")
+            return prefs
+        }
+
     // ==================== ACTIVATION ====================
 
-    fun getActivationToken(): String? {
-        return prefs.getString(KEY_ACTIVATION_TOKEN, null)
-    }
+    fun getActivationToken(): String? = p?.getString(KEY_ACTIVATION_TOKEN, null)
 
     fun setActivationToken(token: String?) {
-        prefs.edit { putString(KEY_ACTIVATION_TOKEN, token) }
+        p?.edit { putString(KEY_ACTIVATION_TOKEN, token) }
     }
 
-    fun getDeviceId(): String? {
-        return prefs.getString(KEY_DEVICE_ID, null)
-    }
+    fun getDeviceId(): String? = p?.getString(KEY_DEVICE_ID, null)
 
     fun setDeviceId(deviceId: String) {
-        prefs.edit { putString(KEY_DEVICE_ID, deviceId) }
+        p?.edit { putString(KEY_DEVICE_ID, deviceId) }
     }
 
-    fun isPaid(): Boolean {
-        return prefs.getBoolean(KEY_IS_PAID, false)
-    }
+    fun isPaid(): Boolean = p?.getBoolean(KEY_IS_PAID, false) ?: false
 
     fun setPaid(isPaid: Boolean) {
-        prefs.edit { putBoolean(KEY_IS_PAID, isPaid) }
+        p?.edit { putBoolean(KEY_IS_PAID, isPaid) }
     }
 
-    fun isTrial(): Boolean {
-        return prefs.getBoolean(KEY_IS_TRIAL, false)
-    }
+    fun isTrial(): Boolean = p?.getBoolean(KEY_IS_TRIAL, false) ?: false
 
     fun setTrial(isTrial: Boolean) {
-        prefs.edit { putBoolean(KEY_IS_TRIAL, isTrial) }
+        p?.edit { putBoolean(KEY_IS_TRIAL, isTrial) }
     }
 
-    fun getTrialExpiry(): Long {
-        return prefs.getLong(KEY_TRIAL_EXPIRY, 0)
-    }
+    fun getTrialExpiry(): Long = p?.getLong(KEY_TRIAL_EXPIRY, 0) ?: 0L
 
     fun setTrialExpiry(expiry: Long) {
-        prefs.edit { putLong(KEY_TRIAL_EXPIRY, expiry) }
+        p?.edit { putLong(KEY_TRIAL_EXPIRY, expiry) }
     }
 
     fun clearActivation() {
-        prefs.edit {
+        p?.edit {
             remove(KEY_ACTIVATION_TOKEN)
             remove(KEY_IS_PAID)
             remove(KEY_IS_TRIAL)
@@ -87,24 +85,20 @@ object SharedPrefs {
 
     // ==================== TARGET APP ====================
 
-    fun getTargetPackage(): String? {
-        return prefs.getString(KEY_TARGET_PACKAGE, null)
-    }
+    fun getTargetPackage(): String? = p?.getString(KEY_TARGET_PACKAGE, null)
 
     fun setTargetPackage(packageName: String?) {
-        prefs.edit { putString(KEY_TARGET_PACKAGE, packageName) }
+        p?.edit { putString(KEY_TARGET_PACKAGE, packageName) }
     }
 
-    fun getTargetAppName(): String? {
-        return prefs.getString(KEY_TARGET_APP_NAME, null)
-    }
+    fun getTargetAppName(): String? = p?.getString(KEY_TARGET_APP_NAME, null)
 
     fun setTargetAppName(appName: String?) {
-        prefs.edit { putString(KEY_TARGET_APP_NAME, appName) }
+        p?.edit { putString(KEY_TARGET_APP_NAME, appName) }
     }
 
     fun clearTarget() {
-        prefs.edit {
+        p?.edit {
             remove(KEY_TARGET_PACKAGE)
             remove(KEY_TARGET_APP_NAME)
         }
@@ -112,38 +106,30 @@ object SharedPrefs {
 
     // ==================== STREAM ====================
 
-    fun getStreamUrl(): String? {
-        return prefs.getString(KEY_STREAM_URL, null)
-    }
+    fun getStreamUrl(): String? = p?.getString(KEY_STREAM_URL, null)
 
     fun setStreamUrl(url: String?) {
-        prefs.edit { putString(KEY_STREAM_URL, url) }
+        p?.edit { putString(KEY_STREAM_URL, url) }
     }
 
-    fun getStreamType(): String? {
-        return prefs.getString(KEY_STREAM_TYPE, null)
-    }
+    fun getStreamType(): String? = p?.getString(KEY_STREAM_TYPE, null)
 
     fun setStreamType(type: String?) {
-        prefs.edit { putString(KEY_STREAM_TYPE, type) }
+        p?.edit { putString(KEY_STREAM_TYPE, type) }
     }
 
-    fun getLastUsedUrl(): String? {
-        return prefs.getString(KEY_LAST_USED_URL, null)
-    }
+    fun getLastUsedUrl(): String? = p?.getString(KEY_LAST_USED_URL, null)
 
     fun setLastUsedUrl(url: String?) {
-        prefs.edit { putString(KEY_LAST_USED_URL, url) }
+        p?.edit { putString(KEY_LAST_USED_URL, url) }
     }
 
     // ==================== DENY LIST ====================
 
-    fun getDenyList(): Set<String> {
-        return prefs.getStringSet(KEY_DENY_LIST, emptySet()) ?: emptySet()
-    }
+    fun getDenyList(): Set<String> = p?.getStringSet(KEY_DENY_LIST, emptySet()) ?: emptySet()
 
     fun setDenyList(denyList: Set<String>) {
-        prefs.edit { putStringSet(KEY_DENY_LIST, denyList) }
+        p?.edit { putStringSet(KEY_DENY_LIST, denyList) }
     }
 
     fun addToDenyList(packageName: String) {
@@ -158,87 +144,67 @@ object SharedPrefs {
         setDenyList(current)
     }
 
-    fun isDenied(packageName: String): Boolean {
-        return getDenyList().contains(packageName)
-    }
+    fun isDenied(packageName: String): Boolean = getDenyList().contains(packageName)
 
     // ==================== SPOOFING ====================
 
-    fun getSpoofModel(): String? {
-        return prefs.getString(KEY_SPOOF_MODEL, null)
-    }
+    fun getSpoofModel(): String? = p?.getString(KEY_SPOOF_MODEL, null)
 
     fun setSpoofModel(model: String?) {
-        prefs.edit { putString(KEY_SPOOF_MODEL, model) }
+        p?.edit { putString(KEY_SPOOF_MODEL, model) }
     }
 
-    fun getSpoofBrand(): String? {
-        return prefs.getString(KEY_SPOOF_BRAND, null)
-    }
+    fun getSpoofBrand(): String? = p?.getString(KEY_SPOOF_BRAND, null)
 
     fun setSpoofBrand(brand: String?) {
-        prefs.edit { putString(KEY_SPOOF_BRAND, brand) }
+        p?.edit { putString(KEY_SPOOF_BRAND, brand) }
     }
 
-    fun getSpoofManufacturer(): String? {
-        return prefs.getString(KEY_SPOOF_MANUFACTURER, null)
-    }
+    fun getSpoofManufacturer(): String? = p?.getString(KEY_SPOOF_MANUFACTURER, null)
 
     fun setSpoofManufacturer(manufacturer: String?) {
-        prefs.edit { putString(KEY_SPOOF_MANUFACTURER, manufacturer) }
+        p?.edit { putString(KEY_SPOOF_MANUFACTURER, manufacturer) }
     }
 
-    fun getSpoofAndroid(): String? {
-        return prefs.getString(KEY_SPOOF_ANDROID, null)
-    }
+    fun getSpoofAndroid(): String? = p?.getString(KEY_SPOOF_ANDROID, null)
 
     fun setSpoofAndroid(androidVersion: String?) {
-        prefs.edit { putString(KEY_SPOOF_ANDROID, androidVersion) }
+        p?.edit { putString(KEY_SPOOF_ANDROID, androidVersion) }
     }
 
-    fun getSpoofBuildId(): String? {
-        return prefs.getString(KEY_SPOOF_BUILD_ID, null)
-    }
+    fun getSpoofBuildId(): String? = p?.getString(KEY_SPOOF_BUILD_ID, null)
 
     fun setSpoofBuildId(buildId: String?) {
-        prefs.edit { putString(KEY_SPOOF_BUILD_ID, buildId) }
+        p?.edit { putString(KEY_SPOOF_BUILD_ID, buildId) }
     }
 
-    fun getSpoofSecurityPatch(): String? {
-        return prefs.getString(KEY_SPOOF_SECURITY_PATCH, null)
-    }
+    fun getSpoofSecurityPatch(): String? = p?.getString(KEY_SPOOF_SECURITY_PATCH, null)
 
     fun setSpoofSecurityPatch(patch: String?) {
-        prefs.edit { putString(KEY_SPOOF_SECURITY_PATCH, patch) }
+        p?.edit { putString(KEY_SPOOF_SECURITY_PATCH, patch) }
     }
 
-    fun isSpoofActive(): Boolean {
-        return prefs.getBoolean(KEY_SPOOF_ACTIVE, false)
-    }
+    fun isSpoofActive(): Boolean = p?.getBoolean(KEY_SPOOF_ACTIVE, false) ?: false
 
     fun setSpoofActive(active: Boolean) {
-        prefs.edit { putBoolean(KEY_SPOOF_ACTIVE, active) }
+        p?.edit { putBoolean(KEY_SPOOF_ACTIVE, active) }
     }
 
-    fun getSpoofDeviceId(): String? {
-        return prefs.getString(KEY_SPOOF_DEVICE_ID, null)
-    }
+    fun getSpoofDeviceId(): String? = p?.getString(KEY_SPOOF_DEVICE_ID, null)
 
     fun setSpoofDeviceId(deviceId: String?) {
-        prefs.edit { putString(KEY_SPOOF_DEVICE_ID, deviceId) }
+        p?.edit { putString(KEY_SPOOF_DEVICE_ID, deviceId) }
     }
 
-    fun getSpoofSerial(): String? {
-        return prefs.getString(KEY_SPOOF_SERIAL, null)
-    }
+    fun getSpoofSerial(): String? = p?.getString(KEY_SPOOF_SERIAL, null)
 
     fun setSpoofSerial(serial: String?) {
-        prefs.edit { putString(KEY_SPOOF_SERIAL, serial) }
+        p?.edit { putString(KEY_SPOOF_SERIAL, serial) }
     }
 
     // ==================== CLEAR ALL ====================
 
     fun clearAll() {
-        prefs.edit { clear() }
+        p?.edit { clear() }
     }
 }
