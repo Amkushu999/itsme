@@ -51,8 +51,8 @@ dependencies {
     compileOnly("de.robv.android.xposed:api:82")
 
     // Kotlin
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.0.20")
-    implementation("org.jetbrains.kotlin:kotlin-reflect:2.0.20")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.3.0")
+    implementation("org.jetbrains.kotlin:kotlin-reflect:2.3.0")
 
     // AndroidX Core
     implementation("androidx.core:core-ktx:1.13.1")
