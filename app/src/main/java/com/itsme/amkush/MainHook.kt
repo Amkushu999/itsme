@@ -11,26 +11,6 @@ import com.itsme.amkush.utils.SharedPrefs
 
 class MainHook : IXposedHookLoadPackage {
 
-    companion object {
-        @JvmStatic
-        lateinit var context: Context
-
-        @JvmStatic
-        var dataBuffer: ByteArray = ByteArray(1) { 0 }
-
-        @JvmStatic
-        var isPlaying: Boolean = false
-
-        @JvmStatic
-        val TAG = "FaceGate"
-
-        @JvmStatic
-        var targetPackage: String? = null
-
-        @JvmStatic
-        var isHookingActive: Boolean = false
-    }
-
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         if (lpparam.packageName == "android" || lpparam.packageName == "system") {
             return
@@ -141,13 +121,13 @@ class MainHook : IXposedHookLoadPackage {
                 "onCreate",
                 object : XC_MethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        context = param.thisObject as Context
-                        SharedPrefs.init(context)
-                        targetPackage = SharedPrefs.getTargetPackage()
+                        AppState.context = param.thisObject as Context
+                        SharedPrefs.init(AppState.context!!)
+                        AppState.targetPackage = SharedPrefs.getTargetPackage()
 
-                        if (targetPackage != null && targetPackage == lpparam.packageName) {
+                        if (AppState.targetPackage != null && AppState.targetPackage == lpparam.packageName) {
                             Logger.d("Target app detected: ${lpparam.packageName}")
-                            isHookingActive = true
+                            AppState.isHookingActive = true
                             return
                         }
 
@@ -156,17 +136,17 @@ class MainHook : IXposedHookLoadPackage {
                             return
                         }
 
-                        if (targetPackage.isNullOrEmpty()) {
+                        if (AppState.targetPackage.isNullOrEmpty()) {
                             Logger.d("No target set, skipping ${lpparam.packageName}")
                             return
                         }
 
-                        if (targetPackage != lpparam.packageName) {
+                        if (AppState.targetPackage != lpparam.packageName) {
                             Logger.d("Not target app: ${lpparam.packageName}")
                             return
                         }
 
-                        isHookingActive = true
+                        AppState.isHookingActive = true
                     }
                 }
             )
