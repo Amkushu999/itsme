@@ -12,6 +12,7 @@ import android.util.Range
 import android.view.Surface
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.AppState
+import com.itsme.amkush.decoder.FrameUtils
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import android.graphics.ImageFormat
@@ -72,11 +73,11 @@ object Camera2Hooks {
             Int::class.javaPrimitiveType,
             object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
-                    val width = param.args[0] as Int
+                    val width  = param.args[0] as Int
                     val height = param.args[1] as Int
                     val format = param.args[2] as Int
 
-                    CameraState.currentWidth = width
+                    CameraState.currentWidth  = width
                     CameraState.currentHeight = height
                     CameraState.currentFormat = format
 
@@ -420,8 +421,12 @@ object Camera2Hooks {
                                     }
                                     updateFpsEstimate()
                                     DecoderLauncher.ensureLaunched()
-                                    if (AppState.dataBuffer.isNotEmpty()) {
-                                        replaceImageData(img, AppState.dataBuffer)
+
+                                    // ── Single atomic snapshot — avoids race between
+                                    //    isEmpty check and actual data + dimension use ──
+                                    val frame = AppState.currentFrame
+                                    if (!frame.isEmpty) {
+                                        replaceImageData(img, frame)
                                     }
                                     img.close()
                                 }
@@ -435,20 +440,33 @@ object Camera2Hooks {
         )
     }
 
-    private fun replaceImageData(image: Image, frameData: ByteArray) {
+    /**
+     * @param frame Atomic snapshot of (data, srcWidth, srcHeight) from the decoder.
+     *              Both data and dimensions come from the same volatile reference, so
+     *              they are always consistent with each other.
+     */
+    private fun replaceImageData(image: Image, frame: AppState.VideoFrame) {
         try {
-            val w = image.width.takeIf  { it > 0 } ?: CameraState.currentWidth.takeIf  { it > 0 } ?: 640
-            val h = image.height.takeIf { it > 0 } ?: CameraState.currentHeight.takeIf { it > 0 } ?: 480
+            val dstW = image.width.takeIf  { it > 0 } ?: CameraState.currentWidth.takeIf  { it > 0 } ?: 640
+            val dstH = image.height.takeIf { it > 0 } ?: CameraState.currentHeight.takeIf { it > 0 } ?: 480
+
+            // Scale the NV21 source frame to exactly the size this surface expects.
+            // If source and destination are already the same size, scaleNv21() returns
+            // the original array without any allocation.
+            val scaledData = FrameUtils.scaleNv21(frame.data, frame.width, frame.height, dstW, dstH)
+
             when (image.format) {
-                ImageFormat.NV21, ImageFormat.YUV_420_888 -> distributeYUV(image, frameData, w, h)
+                ImageFormat.NV21, ImageFormat.YUV_420_888 -> distributeYUV(image, scaledData, dstW, dstH)
                 ImageFormat.JPEG -> {
-                    val jpeg = compressNv21ToJpeg(frameData, w, h)
+                    val jpeg = compressNv21ToJpeg(scaledData, dstW, dstH)
                     val buf  = image.planes[0].buffer
-                    buf.rewind(); buf.put(jpeg, 0, minOf(jpeg.size, buf.remaining()))
+                    buf.rewind()
+                    buf.put(jpeg, 0, minOf(jpeg.size, buf.remaining()))
                 }
                 else -> {
                     val buf = image.planes[0].buffer
-                    buf.rewind(); buf.put(frameData, 0, minOf(frameData.size, buf.remaining()))
+                    buf.rewind()
+                    buf.put(scaledData, 0, minOf(scaledData.size, buf.remaining()))
                 }
             }
         } catch (e: Throwable) {
@@ -458,25 +476,37 @@ object Camera2Hooks {
 
     /**
      * Stride-aware distribution of NV21 bytes across the three YUV hardware planes.
-     * NV21 layout: Y…VU interleaved → Y-plane, then interleaved VU in U/V planes.
+     * [frameData] is already scaled to (w × h) by the caller.
      */
     private fun distributeYUV(image: Image, frameData: ByteArray, w: Int, h: Int) {
-        val planes        = image.planes
-        val yPlane        = planes[0]; val uPlane = planes[1]; val vPlane = planes[2]
-        val yRowStride    = yPlane.rowStride
-        val uvRowStride   = uPlane.rowStride
-        val uvPixelStride = uPlane.pixelStride
-        val ySize         = w * h
-        // Write Y rows, honouring row stride
+        val planes         = image.planes
+        val yPlane         = planes[0]
+        val uPlane         = planes[1]
+        val vPlane         = planes[2]
+        val yRowStride     = yPlane.rowStride
+        val uvRowStride    = uPlane.rowStride
+        val uvPixelStride  = uPlane.pixelStride
+        val ySize          = w * h
+
+        // Write Y rows, honouring hardware row stride
         val yBuf = yPlane.buffer
         for (row in 0 until h) {
-            val pos = row * yRowStride
-            if (pos + w > yBuf.limit() || row * w + w > ySize) break
-            try { yBuf.position(pos); yBuf.put(frameData, row * w, w) } catch (_: Throwable) { break }
+            val pos    = row * yRowStride
+            val srcOff = row * w
+            if (pos + w > yBuf.limit() || srcOff + w > ySize || srcOff + w > frameData.size) break
+            try {
+                yBuf.position(pos)
+                yBuf.put(frameData, srcOff, w)
+            } catch (_: Throwable) { break }
         }
-        // Distribute interleaved VU (NV21 order) into U and V planes
-        val uBuf = uPlane.buffer; val vBuf = vPlane.buffer
-        val vuStart = ySize; val uvRows = h / 2; val uvCols = w / 2
+
+        // Distribute interleaved VU (NV21) → U and V hardware planes
+        val uBuf    = uPlane.buffer
+        val vBuf    = vPlane.buffer
+        val vuStart = ySize
+        val uvRows  = h / 2
+        val uvCols  = w / 2
+
         for (row in 0 until uvRows) {
             for (col in 0 until uvCols) {
                 val uvPos  = row * uvRowStride + col * uvPixelStride
@@ -544,7 +574,7 @@ object Camera2Hooks {
                 sessionClass,
                 "setRepeatingRequest",
                 XposedHelpers.findClass("android.hardware.camera2.CaptureRequest", lpparam.classLoader),
-                XposedHelpers.findClass("android.hardware.camera2.CameraCaptureSession${'$'}CaptureCallback", lpparam.classLoader),
+                XposedHelpers.findClass("android.hardware.camera2.CameraCaptureSession\$CaptureCallback", lpparam.classLoader),
                 android.os.Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
