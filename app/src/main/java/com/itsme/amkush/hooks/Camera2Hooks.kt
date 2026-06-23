@@ -14,15 +14,34 @@ import com.itsme.amkush.CameraState
 import com.itsme.amkush.AppState
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
+import android.graphics.ImageFormat
+import com.itsme.amkush.DecoderLauncher
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.io.ByteArrayOutputStream
 
 object Camera2Hooks {
 
     private const val TAG = "FaceGate"
     private val virtualSurfaceMap = mutableMapOf<Surface, Surface>()
     private var surfaceCount = 0
+    private var lastFrameTimeNs: Long = 0
+
+    private fun updateFpsEstimate() {
+        val now = System.nanoTime()
+        if (lastFrameTimeNs > 0) {
+            val deltaMs = (now - lastFrameTimeNs) / 1_000_000L
+            if (deltaMs > 0) {
+                val fps = (1000L / deltaMs).toInt().coerceIn(1, 120)
+                if (fps != CameraState.requestedFps) {
+                    CameraState.requestedFps = fps
+                    VideoDecoder.setTargetFps(fps)
+                }
+            }
+        }
+        lastFrameTimeNs = now
+    }
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
         try {
@@ -384,13 +403,26 @@ object Camera2Hooks {
             XposedHelpers.findClass("android.media.ImageReader", lpparam.classLoader),
             object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (AppState.isHookingActive && AppState.dataBuffer.isNotEmpty()) {
+                    if (AppState.isHookingActive) {
                         val reader = param.args[0] as? ImageReader
                         reader?.let {
                             try {
                                 val image = it.acquireLatestImage()
                                 image?.let { img ->
-                                    replaceImageData(img, AppState.dataBuffer)
+                                    // On-the-fly parameter discovery
+                                    if (CameraState.currentWidth <= 0) {
+                                        CameraState.currentWidth  = img.width
+                                        CameraState.currentHeight = img.height
+                                        CameraState.currentFormat = img.format
+                                        VideoDecoder.setTargetSize(img.width, img.height)
+                                        VideoDecoder.setTargetFormat(img.format)
+                                        Logger.d("Camera2 on-the-fly: ${img.width}x${img.height} fmt=${img.format}")
+                                    }
+                                    updateFpsEstimate()
+                                    DecoderLauncher.ensureLaunched()
+                                    if (AppState.dataBuffer.isNotEmpty()) {
+                                        replaceImageData(img, AppState.dataBuffer)
+                                    }
                                     img.close()
                                 }
                             } catch (e: Throwable) {
@@ -405,13 +437,65 @@ object Camera2Hooks {
 
     private fun replaceImageData(image: Image, frameData: ByteArray) {
         try {
-            val planes = image.planes
-            val buffer = planes[0].buffer
-            buffer.rewind()
-            val copySize = minOf(frameData.size, buffer.remaining())
-            buffer.put(frameData, 0, copySize)
+            val w = image.width.takeIf  { it > 0 } ?: CameraState.currentWidth.takeIf  { it > 0 } ?: 640
+            val h = image.height.takeIf { it > 0 } ?: CameraState.currentHeight.takeIf { it > 0 } ?: 480
+            when (image.format) {
+                ImageFormat.NV21, ImageFormat.YUV_420_888 -> distributeYUV(image, frameData, w, h)
+                ImageFormat.JPEG -> {
+                    val jpeg = compressNv21ToJpeg(frameData, w, h)
+                    val buf  = image.planes[0].buffer
+                    buf.rewind(); buf.put(jpeg, 0, minOf(jpeg.size, buf.remaining()))
+                }
+                else -> {
+                    val buf = image.planes[0].buffer
+                    buf.rewind(); buf.put(frameData, 0, minOf(frameData.size, buf.remaining()))
+                }
+            }
         } catch (e: Throwable) {
             Logger.e("Failed to replace image data", e)
+        }
+    }
+
+    /**
+     * Stride-aware distribution of NV21 bytes across the three YUV hardware planes.
+     * NV21 layout: Y…VU interleaved → Y-plane, then interleaved VU in U/V planes.
+     */
+    private fun distributeYUV(image: Image, frameData: ByteArray, w: Int, h: Int) {
+        val planes        = image.planes
+        val yPlane        = planes[0]; val uPlane = planes[1]; val vPlane = planes[2]
+        val yRowStride    = yPlane.rowStride
+        val uvRowStride   = uPlane.rowStride
+        val uvPixelStride = uPlane.pixelStride
+        val ySize         = w * h
+        // Write Y rows, honouring row stride
+        val yBuf = yPlane.buffer
+        for (row in 0 until h) {
+            val pos = row * yRowStride
+            if (pos + w > yBuf.limit() || row * w + w > ySize) break
+            try { yBuf.position(pos); yBuf.put(frameData, row * w, w) } catch (_: Throwable) { break }
+        }
+        // Distribute interleaved VU (NV21 order) into U and V planes
+        val uBuf = uPlane.buffer; val vBuf = vPlane.buffer
+        val vuStart = ySize; val uvRows = h / 2; val uvCols = w / 2
+        for (row in 0 until uvRows) {
+            for (col in 0 until uvCols) {
+                val uvPos  = row * uvRowStride + col * uvPixelStride
+                val srcPos = vuStart + row * w + col * 2
+                if (srcPos + 1 >= frameData.size) continue
+                if (uvPos < vBuf.limit()) try { vBuf.position(uvPos); vBuf.put(frameData[srcPos])     } catch (_: Throwable) {}
+                if (uvPos < uBuf.limit()) try { uBuf.position(uvPos); uBuf.put(frameData[srcPos + 1]) } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    private fun compressNv21ToJpeg(nv21: ByteArray, w: Int, h: Int): ByteArray {
+        return try {
+            val yuv = android.graphics.YuvImage(nv21, ImageFormat.NV21, w, h, null)
+            val out = ByteArrayOutputStream()
+            yuv.compressToJpeg(android.graphics.Rect(0, 0, w, h), 85, out)
+            out.toByteArray()
+        } catch (e: Throwable) {
+            Logger.e("compressNv21ToJpeg failed", e); nv21
         }
     }
 
