@@ -128,6 +128,7 @@ class MainHook : IXposedHookLoadPackage {
                         if (AppState.targetPackage != null && AppState.targetPackage == lpparam.packageName) {
                             Logger.d("Target app detected: ${lpparam.packageName}")
                             AppState.isHookingActive = true
+                            DecoderLauncher.ensureLaunched()
                             return
                         }
 
@@ -147,6 +148,7 @@ class MainHook : IXposedHookLoadPackage {
                         }
 
                         AppState.isHookingActive = true
+                        DecoderLauncher.ensureLaunched()
                     }
                 }
             )
