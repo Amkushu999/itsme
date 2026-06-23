@@ -13,7 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.utils.Logger
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.LinkedBlockingQueue
@@ -195,7 +195,7 @@ object VideoDecoder {
                     } else {
                         val uri = Uri.parse(source)
                         if (uri.scheme == "content") {
-                            setDataSource(MainHook.context, uri, null)
+                            setDataSource(AppState.context ?: return@let, uri, null)
                         } else {
                             setDataSource(source)
                         }
@@ -301,7 +301,7 @@ object VideoDecoder {
                 val frame = mQueue.poll(intervalMs.toLong(), TimeUnit.MILLISECONDS)
 
                 if (frame != null && frame.isNotEmpty()) {
-                    MainHook.dataBuffer = frame
+                    AppState.dataBuffer = frame
 
                     framesSinceLastFpsUpdate++
                     val now = System.currentTimeMillis()
