@@ -7,7 +7,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
 import de.robv.android.xposed.XC_MethodHook
@@ -34,7 +34,7 @@ object ExifSpoofHooks {
     private var cachedDeviceModel: String? = null
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (!MainHook.isHookingActive) {
+        if (!AppState.isHookingActive) {
             return
         }
 
@@ -481,7 +481,7 @@ object ExifSpoofHooks {
         }
 
         try {
-            val context = MainHook.context
+            val context = AppState.context
             if (context == null) {
                 Logger.d("Context not available for GPS refresh")
                 setDefaultGps()
