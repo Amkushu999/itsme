@@ -11,7 +11,7 @@ import android.os.Build
 import android.util.Range
 import android.view.Surface
 import com.itsme.amkush.CameraState
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
@@ -89,7 +89,7 @@ object Camera2Hooks {
                 sessionConfigClass,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val config = param.args[0] as SessionConfiguration
                             handleSessionConfiguration(config)
                         }
@@ -110,7 +110,7 @@ object Camera2Hooks {
                 android.os.Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val outputs = param.args[0] as? List<*>
                             outputs?.let { handleOutputs(it) }
                         }
@@ -137,7 +137,7 @@ object Camera2Hooks {
                     android.os.Handler::class.java,
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (MainHook.isHookingActive) {
+                            if (AppState.isHookingActive) {
                                 val outputs = param.args[0] as? List<*>
                                 outputs?.let { handleOutputs(it) }
                                 Logger.d("Camera2 createCaptureSessionByOutputConfigurations hooked")
@@ -161,7 +161,7 @@ object Camera2Hooks {
                     android.os.Handler::class.java,
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (MainHook.isHookingActive) {
+                            if (AppState.isHookingActive) {
                                 val outputs = param.args[0] as? List<*>
                                 outputs?.let { handleOutputs(it) }
                                 Logger.d("Camera2 createConstrainedHighSpeedCaptureSession hooked")
@@ -186,7 +186,7 @@ object Camera2Hooks {
                     android.os.Handler::class.java,
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (MainHook.isHookingActive) {
+                            if (AppState.isHookingActive) {
                                 val outputs = param.args[1] as? List<*>
                                 outputs?.let { handleOutputs(it) }
                                 Logger.d("Camera2 createReprocessableCaptureSession hooked")
@@ -211,7 +211,7 @@ object Camera2Hooks {
                     android.os.Handler::class.java,
                     object : XC_MethodHook() {
                         override fun beforeHookedMethod(param: MethodHookParam) {
-                            if (MainHook.isHookingActive) {
+                            if (AppState.isHookingActive) {
                                 val outputs = param.args[1] as? List<*>
                                 outputs?.let { handleOutputs(it) }
                                 Logger.d("Camera2 createReprocessableCaptureSessionByConfigurations hooked")
@@ -238,7 +238,7 @@ object Camera2Hooks {
                 Surface::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val surface = param.args[0] as? Surface
                             if (surface != null) {
                                 surfaceCount++
@@ -266,7 +266,7 @@ object Camera2Hooks {
                 Surface::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val surface = param.args[0] as? Surface
                             if (surface != null) {
                                 surfaceCount--
@@ -293,7 +293,7 @@ object Camera2Hooks {
                 "build",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             Logger.d("Camera2 CaptureRequest.build() called")
                         }
                     }
@@ -384,13 +384,13 @@ object Camera2Hooks {
             XposedHelpers.findClass("android.media.ImageReader", lpparam.classLoader),
             object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (MainHook.isHookingActive && MainHook.dataBuffer.isNotEmpty()) {
+                    if (AppState.isHookingActive && AppState.dataBuffer.isNotEmpty()) {
                         val reader = param.args[0] as? ImageReader
                         reader?.let {
                             try {
                                 val image = it.acquireLatestImage()
                                 image?.let { img ->
-                                    replaceImageData(img, MainHook.dataBuffer)
+                                    replaceImageData(img, AppState.dataBuffer)
                                     img.close()
                                 }
                             } catch (e: Throwable) {
@@ -427,7 +427,7 @@ object Camera2Hooks {
             Int::class.javaPrimitiveType,
             object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
-                    if (MainHook.isHookingActive) {
+                    if (AppState.isHookingActive) {
                         val builder = param.result
                         if (builder != null) {
                             try {
@@ -464,7 +464,7 @@ object Camera2Hooks {
                 android.os.Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val request = param.args[0]
                             try {
                                 val fpsRange = request.javaClass.getMethod("get", Any::class.java)
