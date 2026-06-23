@@ -1,14 +1,19 @@
 package com.itsme.amkush.hooks
 
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.hardware.Camera
 import com.itsme.amkush.AppState
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.DecoderLauncher
+import com.itsme.amkush.decoder.FrameUtils
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
+import java.io.ByteArrayOutputStream
 import kotlin.math.min
 
 object Camera1Hooks {
@@ -68,7 +73,7 @@ object Camera1Hooks {
 
                     val size = params.previewSize
                     if (size != null) {
-                        CameraState.currentWidth = size.width
+                        CameraState.currentWidth  = size.width
                         CameraState.currentHeight = size.height
                         VideoDecoder.setTargetSize(size.width, size.height)
                     }
@@ -89,6 +94,39 @@ object Camera1Hooks {
         )
     }
 
+    /**
+     * Inject fake frame bytes into a Camera1 preview callback buffer.
+     *
+     * Steps:
+     *  1. Capture a single atomic snapshot of the current frame (data + source dimensions).
+     *  2. Scale the NV21 source to the callback buffer's expected size (app's preview resolution).
+     *  3. Convert NV21 → YV12 if the app requested YV12 format.
+     *  4. Copy the result into [dest], truncating if the buffer is smaller than expected.
+     *
+     * Returning without copying when the frame is empty lets real camera frames pass
+     * through during the brief startup/reconnect window.
+     */
+    private fun injectFrame(dest: ByteArray) {
+        // Atomic snapshot — data + width + height from the same volatile reference
+        val frame = AppState.currentFrame
+        if (frame.isEmpty) return
+
+        val dstW = CameraState.currentWidth.takeIf  { it > 0 } ?: 640
+        val dstH = CameraState.currentHeight.takeIf { it > 0 } ?: 480
+
+        // Scale to the app's preview resolution (no-op if already the right size)
+        val scaled = FrameUtils.scaleNv21(frame.data, frame.width, frame.height, dstW, dstH)
+
+        // Convert format if the app requested something other than NV21
+        val finalData: ByteArray = when (CameraState.currentFormat) {
+            ImageFormat.YV12 -> FrameUtils.nv21ToYv12(scaled, dstW, dstH)
+            else             -> scaled  // NV21 / YUV_420_888 — use as-is
+        }
+
+        val copyLen = min(finalData.size, dest.size)
+        System.arraycopy(finalData, 0, dest, 0, copyLen)
+    }
+
     private fun hookSetPreviewCallback(cameraClass: Class<*>) {
         XposedHelpers.findAndHookMethod(
             cameraClass,
@@ -100,11 +138,7 @@ object Camera1Hooks {
 
                     if (originalCallback != null && AppState.isHookingActive) {
                         val wrappedCallback = Camera.PreviewCallback { data, camera ->
-                            if (AppState.dataBuffer.isNotEmpty()) {
-                                val frame = AppState.dataBuffer
-                                val copySize = min(frame.size, data.size)
-                                System.arraycopy(frame, 0, data, 0, copySize)
-                            }
+                            injectFrame(data)
                             originalCallback.onPreviewFrame(data, camera)
                         }
                         param.args[0] = wrappedCallback
@@ -126,11 +160,7 @@ object Camera1Hooks {
 
                     if (originalCallback != null && AppState.isHookingActive) {
                         val wrappedCallback = Camera.PreviewCallback { data, camera ->
-                            if (AppState.dataBuffer.isNotEmpty()) {
-                                val frame = AppState.dataBuffer
-                                val copySize = min(frame.size, data.size)
-                                System.arraycopy(frame, 0, data, 0, copySize)
-                            }
+                            injectFrame(data)
                             originalCallback.onPreviewFrame(data, camera)
                         }
                         param.args[0] = wrappedCallback
@@ -169,11 +199,7 @@ object Camera1Hooks {
 
                     if (originalCallback != null && AppState.isHookingActive) {
                         val wrappedCallback = Camera.PreviewCallback { data, camera ->
-                            if (AppState.dataBuffer.isNotEmpty()) {
-                                val frame = AppState.dataBuffer
-                                val copySize = min(frame.size, data.size)
-                                System.arraycopy(frame, 0, data, 0, copySize)
-                            }
+                            injectFrame(data)
                             originalCallback.onPreviewFrame(data, camera)
                         }
                         param.args[0] = wrappedCallback
@@ -200,7 +226,7 @@ object Camera1Hooks {
                             val camera = param.args[1] as? Camera
                             if (camera != null) {
                                 try {
-                                    val p = camera.parameters
+                                    val p  = camera.parameters
                                     val sz = p.previewSize
                                     if (sz != null) {
                                         CameraState.currentWidth  = sz.width
@@ -220,15 +246,11 @@ object Camera1Hooks {
                                 }
                             }
                         }
-                        // Ensure decoder is running (handles already-running apps)
+                        // Ensure decoder is running (handles apps already running at inject time)
                         DecoderLauncher.ensureLaunched()
 
                         val data = param.args[0] as ByteArray
-                        if (AppState.dataBuffer.isNotEmpty()) {
-                            val frame = AppState.dataBuffer
-                            val copySize = min(frame.size, data.size)
-                            System.arraycopy(frame, 0, data, 0, copySize)
-                        }
+                        injectFrame(data)
                     }
                 }
             }
@@ -380,18 +402,15 @@ object Camera1Hooks {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val errorCode = param.args[0] as? Int ?: return
-                        
-                        // CAMERA_ERROR_RELEASED = 2 (on newer Android versions)
-                        // CAMERA_ERROR_SERVER_DIED = 100
+                        // CAMERA_ERROR_RELEASED = 2, CAMERA_ERROR_SERVER_DIED = 100
                         if (errorCode == 2 || errorCode == 100) {
-                            Logger.d("Camera1 error callback: camera released or server died - resetting state")
+                            Logger.d("Camera1 error callback: resetting state (error $errorCode)")
                             CameraState.reset()
                         }
                     }
                 }
             )
 
-            // Also hook setErrorCallback to wrap the callback
             XposedHelpers.findAndHookMethod(
                 cameraClass,
                 "setErrorCallback",
@@ -399,11 +418,11 @@ object Camera1Hooks {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val originalCallback = param.args[0] as? Camera.ErrorCallback
-                        
+
                         if (originalCallback != null && AppState.isHookingActive) {
                             val wrappedCallback = Camera.ErrorCallback { errorCode, camera ->
                                 if (errorCode == 2 || errorCode == 100) {
-                                    Logger.d("Camera1 setErrorCallback: camera released or server died - resetting state")
+                                    Logger.d("Camera1 setErrorCallback: resetting state (error $errorCode)")
                                     CameraState.reset()
                                 }
                                 originalCallback.onError(errorCode, camera)
@@ -420,21 +439,30 @@ object Camera1Hooks {
         }
     }
 
+    /**
+     * Convert the current fake frame to JPEG for takePicture() callbacks.
+     * Uses the frame's own source dimensions (not CameraState) so the YuvImage
+     * and scaler are always consistent even if CameraState hasn't been updated.
+     */
     private fun getFakeJpeg(): ByteArray? {
-        val buffer = AppState.dataBuffer
-        if (buffer.isEmpty()) return null
+        val frame = AppState.currentFrame
+        if (frame.isEmpty) return null
 
         return try {
-            if (buffer.size >= 2 && buffer[0] == 0xFF.toByte() && buffer[1] == 0xD8.toByte()) {
-                buffer
+            // If the buffer already starts with FF D8 it is JPEG — return directly
+            if (frame.data.size >= 2
+                && frame.data[0] == 0xFF.toByte()
+                && frame.data[1] == 0xD8.toByte()
+            ) {
+                frame.data
             } else {
-                val width = CameraState.currentWidth.takeIf { it > 0 } ?: 640
-                val height = CameraState.currentHeight.takeIf { it > 0 } ?: 480
-                val yuvImage = android.graphics.YuvImage(
-                    buffer, android.graphics.ImageFormat.NV21, width, height, null
-                )
-                val stream = java.io.ByteArrayOutputStream()
-                yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 90, stream)
+                // Scale to picture resolution (may differ from preview resolution)
+                val picW  = CameraState.currentWidth.takeIf  { it > 0 } ?: frame.width
+                val picH  = CameraState.currentHeight.takeIf { it > 0 } ?: frame.height
+                val nv21  = FrameUtils.scaleNv21(frame.data, frame.width, frame.height, picW, picH)
+                val yuv   = YuvImage(nv21, ImageFormat.NV21, picW, picH, null)
+                val stream = ByteArrayOutputStream()
+                yuv.compressToJpeg(Rect(0, 0, picW, picH), 90, stream)
                 stream.toByteArray()
             }
         } catch (e: Exception) {
