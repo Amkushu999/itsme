@@ -3,7 +3,7 @@ package com.itsme.amkush.hooks
 import android.util.Range
 import androidx.camera.core.CameraState as CameraXState
 import com.itsme.amkush.CameraState
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
@@ -53,14 +53,14 @@ object CameraXHooks {
                 analyzerClass,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val originalAnalyzer = param.args[1]
 
                             val wrappedAnalyzer = object {
                                 fun analyze(imageProxy: Any) {
                                     try {
                                         val method = originalAnalyzer.javaClass.getMethod("analyze", imageProxyClass)
-                                        if (MainHook.dataBuffer.isNotEmpty()) {
+                                        if (AppState.dataBuffer.isNotEmpty()) {
                                             val fakeImage = createFakeImageProxy(imageProxy)
                                             if (fakeImage != null) {
                                                 method.invoke(originalAnalyzer, fakeImage)
@@ -138,7 +138,7 @@ object CameraXHooks {
                 Class.forName("androidx.camera.core.UseCase"),
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             Logger.d("CameraX bindToLifecycle intercepted")
                             CameraState.isPreviewActive = true
 
@@ -390,7 +390,7 @@ object CameraXHooks {
     }
 
     private fun createFakeImageProxy(original: Any): Any? {
-        if (MainHook.dataBuffer.isEmpty()) return null
+        if (AppState.dataBuffer.isEmpty()) return null
         return try {
             val planesMethod = original.javaClass.getMethod("getPlanes")
             val planes = planesMethod.invoke(original) as? Array<*> ?: return null
@@ -402,7 +402,7 @@ object CameraXHooks {
 
             if (byteBuffer.isReadOnly) return null
 
-            val src = MainHook.dataBuffer
+            val src = AppState.dataBuffer
             val copyLen = minOf(src.size, byteBuffer.capacity())
             byteBuffer.clear()
             byteBuffer.put(src, 0, copyLen)
