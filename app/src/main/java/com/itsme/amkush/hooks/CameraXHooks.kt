@@ -6,6 +6,7 @@ import androidx.camera.core.CameraState as CameraXState
 import com.itsme.amkush.AppState
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.DecoderLauncher
+import com.itsme.amkush.decoder.FrameUtils
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
@@ -78,8 +79,10 @@ object CameraXHooks {
                                 fun analyze(imageProxy: Any) {
                                     try {
                                         val method = originalAnalyzer.javaClass.getMethod("analyze", imageProxyClass)
-                                        if (AppState.dataBuffer.isNotEmpty()) {
-                                            val fakeImage = createFakeImageProxy(imageProxy)
+                                        // Single atomic snapshot
+                                        val frame = AppState.currentFrame
+                                        if (!frame.isEmpty) {
+                                            val fakeImage = createFakeImageProxy(imageProxy, frame)
                                             if (fakeImage != null) {
                                                 method.invoke(originalAnalyzer, fakeImage)
                                                 return
@@ -123,7 +126,7 @@ object CameraXHooks {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val size = param.args[0] as? android.util.Size
                         if (size != null) {
-                            CameraState.currentWidth = size.width
+                            CameraState.currentWidth  = size.width
                             CameraState.currentHeight = size.height
                             VideoDecoder.setTargetSize(size.width, size.height)
                             Logger.d("CameraX target resolution: ${size.width}x${size.height}")
@@ -256,7 +259,7 @@ object CameraXHooks {
                                 }
                                 CameraXState.Type.CLOSING -> Logger.d("CameraX camera closing")
                                 CameraXState.Type.OPENING -> Logger.d("CameraX camera opening")
-                                CameraXState.Type.OPEN -> Logger.d("CameraX camera open")
+                                CameraXState.Type.OPEN    -> Logger.d("CameraX camera open")
                                 else -> {}
                             }
                         }
@@ -398,7 +401,7 @@ object CameraXHooks {
         try {
             try {
                 val method = useCase.javaClass.getMethod("getCameraState")
-                val state = method.invoke(useCase) as? CameraXState
+                val state  = method.invoke(useCase) as? CameraXState
                 if (state != null && state.getType() == CameraXState.Type.CLOSED) {
                     Logger.d("CameraX UseCase: camera CLOSED - resetting state")
                     CameraState.reset()
@@ -407,9 +410,18 @@ object CameraXHooks {
         } catch (e: Throwable) { /* Ignore */ }
     }
 
-    private fun createFakeImageProxy(original: Any): Any? {
-        if (AppState.dataBuffer.isEmpty()) return null
-
+    /**
+     * Write fake frame data into the Y plane of an existing ImageProxy.
+     * Scales the source NV21 to the ImageProxy's reported dimensions so that
+     * a 640×480 stream injected into a 1080p analysis surface doesn't produce
+     * garbled output.
+     *
+     * Only the Y (luma) plane is patched here because CameraX's ImageProxy
+     * implementations vary wildly across vendors — patching chroma planes via
+     * reflection is unreliable and often read-only. The luma patch alone gives
+     * a correct black-and-white frame rather than colour noise.
+     */
+    private fun createFakeImageProxy(original: Any, frame: AppState.VideoFrame): Any? {
         // On-the-fly parameter discovery from the live ImageProxy
         if (CameraState.currentWidth <= 0) {
             try {
@@ -420,9 +432,11 @@ object CameraXHooks {
                         ?: ImageFormat.YUV_420_888
                 } catch (_: Throwable) { ImageFormat.YUV_420_888 }
                 if (w > 0 && h > 0) {
-                    CameraState.currentWidth  = w; CameraState.currentHeight = h
+                    CameraState.currentWidth  = w
+                    CameraState.currentHeight = h
                     CameraState.currentFormat = fmt
-                    VideoDecoder.setTargetSize(w, h); VideoDecoder.setTargetFormat(fmt)
+                    VideoDecoder.setTargetSize(w, h)
+                    VideoDecoder.setTargetFormat(fmt)
                     Logger.d("CameraX on-the-fly discovery: ${w}x${h}, fmt=$fmt")
                 }
             } catch (_: Throwable) {}
@@ -430,20 +444,30 @@ object CameraXHooks {
         updateFpsEstimateX()
         DecoderLauncher.ensureLaunched()
 
+        val dstW = CameraState.currentWidth.takeIf  { it > 0 } ?: frame.width
+        val dstH = CameraState.currentHeight.takeIf { it > 0 } ?: frame.height
+
         return try {
             val planesMethod = original.javaClass.getMethod("getPlanes")
-            val planes = planesMethod.invoke(original) as? Array<*> ?: return null
+            val planes       = planesMethod.invoke(original) as? Array<*> ?: return null
             if (planes.isEmpty()) return null
-            val plane = planes[0] ?: return null
+            val plane        = planes[0] ?: return null
             val bufferMethod = plane.javaClass.getMethod("getBuffer")
-            val byteBuffer = bufferMethod.invoke(plane) as? java.nio.ByteBuffer ?: return null
+            val byteBuffer   = bufferMethod.invoke(plane) as? java.nio.ByteBuffer ?: return null
             if (byteBuffer.isReadOnly) return null
-            val src = AppState.dataBuffer
-            val copyLen = minOf(src.size, byteBuffer.capacity())
-            byteBuffer.clear(); byteBuffer.put(src, 0, copyLen); byteBuffer.rewind()
+
+            // Scale source NV21 to destination dimensions — Y-plane copy only
+            val scaled  = FrameUtils.scaleNv21(frame.data, frame.width, frame.height, dstW, dstH)
+            val yBytes  = dstW * dstH                          // just the Y plane
+            val copyLen = minOf(yBytes, scaled.size, byteBuffer.capacity())
+
+            byteBuffer.clear()
+            byteBuffer.put(scaled, 0, copyLen)
+            byteBuffer.rewind()
             original
         } catch (e: Throwable) {
-            Logger.e("createFakeImageProxy failed", e); null
+            Logger.e("createFakeImageProxy failed", e)
+            null
         }
     }
 }
