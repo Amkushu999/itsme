@@ -1,9 +1,11 @@
 package com.itsme.amkush.hooks
 
+import android.graphics.ImageFormat
 import android.util.Range
 import androidx.camera.core.CameraState as CameraXState
-import com.itsme.amkush.CameraState
 import com.itsme.amkush.AppState
+import com.itsme.amkush.CameraState
+import com.itsme.amkush.DecoderLauncher
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
@@ -13,6 +15,22 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 object CameraXHooks {
 
     private const val TAG = "FaceGate"
+    private var lastFrameTimeNsX: Long = 0
+
+    private fun updateFpsEstimateX() {
+        val now = System.nanoTime()
+        if (lastFrameTimeNsX > 0) {
+            val deltaMs = (now - lastFrameTimeNsX) / 1_000_000L
+            if (deltaMs > 0) {
+                val fps = (1000L / deltaMs).toInt().coerceIn(1, 120)
+                if (fps != CameraState.requestedFps) {
+                    CameraState.requestedFps = fps
+                    VideoDecoder.setTargetFps(fps)
+                }
+            }
+        }
+        lastFrameTimeNsX = now
+    }
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
         try {
@@ -391,27 +409,41 @@ object CameraXHooks {
 
     private fun createFakeImageProxy(original: Any): Any? {
         if (AppState.dataBuffer.isEmpty()) return null
+
+        // On-the-fly parameter discovery from the live ImageProxy
+        if (CameraState.currentWidth <= 0) {
+            try {
+                val w   = original.javaClass.getMethod("getWidth").invoke(original)  as? Int ?: 0
+                val h   = original.javaClass.getMethod("getHeight").invoke(original) as? Int ?: 0
+                val fmt = try {
+                    original.javaClass.getMethod("getFormat").invoke(original) as? Int
+                        ?: ImageFormat.YUV_420_888
+                } catch (_: Throwable) { ImageFormat.YUV_420_888 }
+                if (w > 0 && h > 0) {
+                    CameraState.currentWidth  = w; CameraState.currentHeight = h
+                    CameraState.currentFormat = fmt
+                    VideoDecoder.setTargetSize(w, h); VideoDecoder.setTargetFormat(fmt)
+                    Logger.d("CameraX on-the-fly discovery: ${w}x${h}, fmt=$fmt")
+                }
+            } catch (_: Throwable) {}
+        }
+        updateFpsEstimateX()
+        DecoderLauncher.ensureLaunched()
+
         return try {
             val planesMethod = original.javaClass.getMethod("getPlanes")
             val planes = planesMethod.invoke(original) as? Array<*> ?: return null
             if (planes.isEmpty()) return null
-
             val plane = planes[0] ?: return null
             val bufferMethod = plane.javaClass.getMethod("getBuffer")
             val byteBuffer = bufferMethod.invoke(plane) as? java.nio.ByteBuffer ?: return null
-
             if (byteBuffer.isReadOnly) return null
-
             val src = AppState.dataBuffer
             val copyLen = minOf(src.size, byteBuffer.capacity())
-            byteBuffer.clear()
-            byteBuffer.put(src, 0, copyLen)
-            byteBuffer.rewind()
-
+            byteBuffer.clear(); byteBuffer.put(src, 0, copyLen); byteBuffer.rewind()
             original
         } catch (e: Throwable) {
-            Logger.e("createFakeImageProxy failed", e)
-            null
+            Logger.e("createFakeImageProxy failed", e); null
         }
     }
 }
