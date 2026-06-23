@@ -322,22 +322,38 @@ class MediaFragment : Fragment() {
             Toast.makeText(requireContext(), R.string.no_target_selected, Toast.LENGTH_LONG).show()
             return
         }
-
         if (selectedUri == null) {
             Toast.makeText(requireContext(), R.string.no_media_selected_error, Toast.LENGTH_SHORT).show()
             return
         }
 
+        // Conflict check: if a live stream URL is also configured, ask the user
+        val streamUrl = SharedPrefs.getStreamUrl()
+        if (!streamUrl.isNullOrEmpty()) {
+            androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Choose Injection Mode")
+                .setMessage("Both a live stream URL and a local media file are configured.\nWhich source should be injected?")
+                .setPositiveButton("Inject Local Media") { _, _ ->
+                    SharedPrefs.setStreamUrl(null)
+                    proceedWithInjection(targetPkg, mediaUri = selectedUri.toString(), streamUrl = null)
+                }
+                .setNegativeButton("Inject Live Stream") { _, _ ->
+                    selectedUri = null
+                    SharedPrefs.setLastUsedUrl(null)
+                    proceedWithInjection(targetPkg, mediaUri = null, streamUrl = streamUrl)
+                }
+                .setNeutralButton("Cancel", null)
+                .show()
+            return
+        }
+        proceedWithInjection(targetPkg, mediaUri = selectedUri.toString(), streamUrl = null)
+    }
+
+    private fun proceedWithInjection(targetPkg: String, mediaUri: String?, streamUrl: String?) {
         progressBar.visibility = View.VISIBLE
         isInjectionRunning = true
         updateUI()
-
-        val intent = Intent(requireContext(), InjectionService::class.java).apply {
-            putExtra("target_package", targetPkg)
-            putExtra("media_uri", selectedUri.toString())
-        }
-        requireContext().startService(intent)
-
+        InjectionService.start(requireContext(), targetPkg, streamUrl = streamUrl, mediaUri = mediaUri)
         val appName = targetAppName ?: SharedPrefs.getTargetAppName()
         Toast.makeText(requireContext(), getString(R.string.injection_started, appName), Toast.LENGTH_SHORT).show()
         progressBar.visibility = View.GONE
