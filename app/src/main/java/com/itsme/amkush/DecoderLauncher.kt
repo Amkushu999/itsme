@@ -66,7 +66,11 @@ object DecoderLauncher {
         }
     }
 
-    /** Reset without stopping — call when the target process is reinitialised. */
+    /**
+     * Reset without stopping — call when the target process is reinitialised,
+     * or when a decoder signals it has recovered and wants to be re-evaluated.
+     * Does NOT restart any decoder; the next ensureLaunched() call will do that.
+     */
     fun reset() {
         launched = false
     }
