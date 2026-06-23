@@ -1,7 +1,7 @@
 package com.itsme.amkush.hooks
 
 import android.content.pm.PackageManager
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -31,7 +31,7 @@ object RootBypassHooks {
     )
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (!MainHook.isHookingActive) {
+        if (!AppState.isHookingActive) {
             return
         }
 
