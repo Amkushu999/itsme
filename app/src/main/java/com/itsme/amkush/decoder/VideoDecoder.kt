@@ -423,21 +423,53 @@ object VideoDecoder {
         }
     }
 
+    /**
+     * Stride-aware YUV_420_888 → NV21 conversion.
+     *
+     * The naive `buffer.remaining()` approach incorrectly includes row-padding bytes
+     * when rowStride > width, producing garbled frames.  This version strips padding
+     * from the Y plane and correctly interleaves V then U (NV21 order) using the
+     * per-pixel stride so packed and semi-planar layouts both work.
+     */
     private fun convertToNV21(image: Image): ByteArray {
-        val planes = image.planes
-        val yBuffer = planes[0].buffer
-        val uBuffer = planes[1].buffer
-        val vBuffer = planes[2].buffer
+        val w = image.width
+        val h = image.height
 
-        val ySize = yBuffer.remaining()
-        val uSize = uBuffer.remaining()
-        val vSize = vBuffer.remaining()
+        val yPlane = image.planes[0]
+        val uPlane = image.planes[1]
+        val vPlane = image.planes[2]
 
-        val nv21 = ByteArray(ySize + uSize + vSize)
+        val yRowStride    = yPlane.rowStride
+        val uvRowStride   = uPlane.rowStride
+        val uvPixelStride = uPlane.pixelStride
 
-        yBuffer.get(nv21, 0, ySize)
-        vBuffer.get(nv21, ySize, vSize)
-        uBuffer.get(nv21, ySize + vSize, uSize)
+        val nv21 = ByteArray(w * h + w * (h / 2))
+
+        // Copy Y plane — strip row padding
+        val yBuf = yPlane.buffer
+        for (row in 0 until h) {
+            val srcPos = row * yRowStride
+            if (srcPos + w > yBuf.limit()) break
+            yBuf.position(srcPos)
+            yBuf.get(nv21, row * w, w)
+        }
+
+        // Interleave V then U into the chroma half (NV21 = Y…VU…)
+        val uBuf    = uPlane.buffer
+        val vBuf    = vPlane.buffer
+        val vuStart = w * h
+        val uvRows  = h / 2
+        val uvCols  = w / 2
+
+        for (row in 0 until uvRows) {
+            for (col in 0 until uvCols) {
+                val uvPos  = row * uvRowStride + col * uvPixelStride
+                val dstPos = vuStart + row * w + col * 2
+                if (dstPos + 1 >= nv21.size) break
+                if (uvPos < vBuf.limit()) nv21[dstPos]     = vBuf.get(uvPos)   // V
+                if (uvPos < uBuf.limit()) nv21[dstPos + 1] = uBuf.get(uvPos)   // U
+            }
+        }
 
         return nv21
     }
