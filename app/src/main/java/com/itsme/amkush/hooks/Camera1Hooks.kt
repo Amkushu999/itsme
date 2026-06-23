@@ -2,7 +2,7 @@ package com.itsme.amkush.hooks
 
 import android.hardware.Camera
 import com.itsme.amkush.CameraState
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
@@ -97,10 +97,10 @@ object Camera1Hooks {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val originalCallback = param.args[0] as? Camera.PreviewCallback
 
-                    if (originalCallback != null && MainHook.isHookingActive) {
+                    if (originalCallback != null && AppState.isHookingActive) {
                         val wrappedCallback = Camera.PreviewCallback { data, camera ->
-                            if (MainHook.dataBuffer.isNotEmpty()) {
-                                val frame = MainHook.dataBuffer
+                            if (AppState.dataBuffer.isNotEmpty()) {
+                                val frame = AppState.dataBuffer
                                 val copySize = min(frame.size, data.size)
                                 System.arraycopy(frame, 0, data, 0, copySize)
                             }
@@ -123,10 +123,10 @@ object Camera1Hooks {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val originalCallback = param.args[0] as? Camera.PreviewCallback
 
-                    if (originalCallback != null && MainHook.isHookingActive) {
+                    if (originalCallback != null && AppState.isHookingActive) {
                         val wrappedCallback = Camera.PreviewCallback { data, camera ->
-                            if (MainHook.dataBuffer.isNotEmpty()) {
-                                val frame = MainHook.dataBuffer
+                            if (AppState.dataBuffer.isNotEmpty()) {
+                                val frame = AppState.dataBuffer
                                 val copySize = min(frame.size, data.size)
                                 System.arraycopy(frame, 0, data, 0, copySize)
                             }
@@ -166,10 +166,10 @@ object Camera1Hooks {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val originalCallback = param.args[0] as? Camera.PreviewCallback
 
-                    if (originalCallback != null && MainHook.isHookingActive) {
+                    if (originalCallback != null && AppState.isHookingActive) {
                         val wrappedCallback = Camera.PreviewCallback { data, camera ->
-                            if (MainHook.dataBuffer.isNotEmpty()) {
-                                val frame = MainHook.dataBuffer
+                            if (AppState.dataBuffer.isNotEmpty()) {
+                                val frame = AppState.dataBuffer
                                 val copySize = min(frame.size, data.size)
                                 System.arraycopy(frame, 0, data, 0, copySize)
                             }
@@ -193,10 +193,10 @@ object Camera1Hooks {
             Camera::class.java,
             object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (MainHook.isHookingActive) {
+                    if (AppState.isHookingActive) {
                         val data = param.args[0] as ByteArray
-                        if (MainHook.dataBuffer.isNotEmpty()) {
-                            val frame = MainHook.dataBuffer
+                        if (AppState.dataBuffer.isNotEmpty()) {
+                            val frame = AppState.dataBuffer
                             val copySize = min(frame.size, data.size)
                             System.arraycopy(frame, 0, data, 0, copySize)
                         }
@@ -219,7 +219,7 @@ object Camera1Hooks {
             pictureCallbackClass,
             object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (MainHook.isHookingActive) {
+                    if (AppState.isHookingActive) {
                         val originalJpegCallback = param.args[3] as? Camera.PictureCallback
 
                         param.args[3] = Camera.PictureCallback { data, camera ->
@@ -245,7 +245,7 @@ object Camera1Hooks {
                 android.view.SurfaceHolder::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val holder = param.args[0] as? android.view.SurfaceHolder
                             if (holder != null) {
                                 Logger.d("Camera1 setPreviewDisplay intercepted")
@@ -268,7 +268,7 @@ object Camera1Hooks {
                 android.graphics.SurfaceTexture::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             val texture = param.args[0] as? android.graphics.SurfaceTexture
                             if (texture != null) {
                                 Logger.d("Camera1 setPreviewTexture intercepted")
@@ -289,7 +289,7 @@ object Camera1Hooks {
                 "startPreview",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             CameraState.isPreviewActive = true
                             Logger.d("Camera1 startPreview intercepted")
                         }
@@ -308,7 +308,7 @@ object Camera1Hooks {
                 "stopPreview",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             CameraState.isPreviewActive = false
                             Logger.d("Camera1 stopPreview intercepted")
                         }
@@ -327,7 +327,7 @@ object Camera1Hooks {
                 "release",
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (MainHook.isHookingActive) {
+                        if (AppState.isHookingActive) {
                             Logger.d("Camera1 release called - resetting state")
                             CameraState.reset()
                         }
@@ -371,7 +371,7 @@ object Camera1Hooks {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         val originalCallback = param.args[0] as? Camera.ErrorCallback
                         
-                        if (originalCallback != null && MainHook.isHookingActive) {
+                        if (originalCallback != null && AppState.isHookingActive) {
                             val wrappedCallback = Camera.ErrorCallback { errorCode, camera ->
                                 if (errorCode == 2 || errorCode == 100) {
                                     Logger.d("Camera1 setErrorCallback: camera released or server died - resetting state")
@@ -392,7 +392,7 @@ object Camera1Hooks {
     }
 
     private fun getFakeJpeg(): ByteArray? {
-        val buffer = MainHook.dataBuffer
+        val buffer = AppState.dataBuffer
         if (buffer.isEmpty()) return null
 
         return try {
