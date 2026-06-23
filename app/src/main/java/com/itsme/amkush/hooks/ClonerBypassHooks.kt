@@ -3,7 +3,7 @@ package com.itsme.amkush.hooks
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -77,7 +77,7 @@ object ClonerBypassHooks {
     )
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (!MainHook.isHookingActive) {
+        if (!AppState.isHookingActive) {
             return
         }
 
@@ -162,7 +162,7 @@ object ClonerBypassHooks {
                         if (clonerPaths.any { path.contains(it) }) {
                             val originalPath = path.replace(
                                 Regex("/data/data/com\\..*?\\.clone/"),
-                                "/data/data/${MainHook.targetPackage}/"
+                                "/data/data/${AppState.targetPackage}/"
                             )
                             param.result = originalPath
                             Logger.d("Spoofed cloner path: $path -> $originalPath")
@@ -182,7 +182,7 @@ object ClonerBypassHooks {
                         if (clonerPaths.any { path.contains(it) }) {
                             val canonicalPath = path.replace(
                                 Regex("/data/data/com\\..*?\\.clone/"),
-                                "/data/data/${MainHook.targetPackage}/"
+                                "/data/data/${AppState.targetPackage}/"
                             )
                             param.result = canonicalPath
                         }
@@ -292,7 +292,7 @@ object ClonerBypassHooks {
                         val appInfo = param.thisObject
                         try {
                             val packageName = appInfo.javaClass.getMethod("packageName").invoke(appInfo) as? String
-                            if (packageName == MainHook.targetPackage) {
+                            if (packageName == AppState.targetPackage) {
                                 val normalPath = "/data/app/${packageName}-base.apk"
                                 param.result = normalPath
                                 Logger.d("Spoofed sourceDir for: $packageName")
@@ -312,7 +312,7 @@ object ClonerBypassHooks {
                         val appInfo = param.thisObject
                         try {
                             val packageName = appInfo.javaClass.getMethod("packageName").invoke(appInfo) as? String
-                            if (packageName == MainHook.targetPackage) {
+                            if (packageName == AppState.targetPackage) {
                                 val normalPath = "/data/data/${packageName}"
                                 param.result = normalPath
                                 Logger.d("Spoofed dataDir for: $packageName")
@@ -628,7 +628,7 @@ object ClonerBypassHooks {
                                 val appInfo = boundApplication.get(thread)
                                 val packageName = appInfo.javaClass.getMethod("packageName").invoke(appInfo) as? String
 
-                                if (packageName == MainHook.targetPackage) {
+                                if (packageName == AppState.targetPackage) {
                                     // Spoof the application info to show normal installation path
                                     try {
                                         val infoField = appInfo.javaClass.getDeclaredField("sourceDir")
