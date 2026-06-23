@@ -10,7 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
 import de.robv.android.xposed.XC_MethodHook
@@ -29,7 +29,7 @@ object IntentCaptureHooks {
     private const val RESULT_OK = -1
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (!MainHook.isHookingActive) {
+        if (!AppState.isHookingActive) {
             return
         }
 
@@ -156,7 +156,7 @@ object IntentCaptureHooks {
                 return
             }
 
-            val context = MainHook.context
+            val context = AppState.context
             if (context == null) {
                 Logger.e("Context not available for image replacement")
                 return
@@ -302,7 +302,7 @@ object IntentCaptureHooks {
                 return
             }
 
-            val context = MainHook.context
+            val context = AppState.context
             if (context == null) {
                 Logger.e("Context not available for video replacement")
                 return
