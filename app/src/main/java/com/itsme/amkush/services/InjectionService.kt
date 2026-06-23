@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.itsme.amkush.AppState
 import com.itsme.amkush.R
 import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
@@ -48,6 +49,7 @@ class InjectionService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
+        AppState.context = applicationContext
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, createNotification())
         Logger.d("InjectionService created")
