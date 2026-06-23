@@ -1,7 +1,7 @@
 package com.itsme.amkush.hooks
 
 import android.os.Build
-import com.itsme.amkush.MainHook
+import com.itsme.amkush.AppState
 import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
 import de.robv.android.xposed.XC_MethodHook
@@ -11,7 +11,7 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 object DeviceSpoofHooks {
 
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
-        if (!MainHook.isHookingActive) {
+        if (!AppState.isHookingActive) {
             return
         }
 
