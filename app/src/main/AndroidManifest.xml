@@ -88,6 +88,15 @@
             android:foregroundServiceType="mediaPlayback|camera|dataSync"
             android:enabled="true" />
 
+        <!-- ==================== IPC CONFIG PROVIDER ==================== -->
+
+        <!-- Exposes injection config cross-process so Xposed hooks can read it -->
+        <provider
+            android:name=".ipc.FaceGateIpcProvider"
+            android:authorities="com.itsme.amkush.ipc"
+            android:exported="true"
+            android:enabled="true" />
+
         <!-- ==================== FILE PROVIDER ==================== -->
 
         <provider
