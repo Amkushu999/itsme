@@ -8,7 +8,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.itsme.amkush.AppState
 import com.itsme.amkush.R
-import com.itsme.amkush.decoder.VideoDecoder
+import com.itsme.amkush.ipc.RemoteConfig
 import com.itsme.amkush.utils.Logger
 
 class InjectionService : Service() {
@@ -61,28 +61,21 @@ class InjectionService : Service() {
         val mediaUri = intent?.getStringExtra("media_uri")
 
         if (!targetPackage.isNullOrEmpty()) {
-            Logger.d("InjectionService targeting: $targetPackage")
-
-            when {
-                !streamUrl.isNullOrEmpty() -> {
-                    Logger.d("Starting stream decoder: $streamUrl")
-                    VideoDecoder.startStream(streamUrl)
-                }
-                !mediaUri.isNullOrEmpty() -> {
-                    Logger.d("Starting media decoder: $mediaUri")
-                    VideoDecoder.startMedia(mediaUri)
-                }
-                else -> {
-                    Logger.d("No stream or media provided")
-                }
-            }
+            Logger.d("InjectionService: config → pkg=$targetPackage stream=$streamUrl media=$mediaUri")
+            // Write config into the cross-process ContentProvider so the Xposed hook
+            // (running in the target app's process) can read it and launch its decoder.
+            RemoteConfig.setTargetPackage(this, targetPackage)
+            RemoteConfig.setStreamUrl(this, streamUrl)
+            RemoteConfig.setMediaUri(this, mediaUri)
+            RemoteConfig.setInjectionActive(this, true)
         }
 
         return START_STICKY
     }
 
     override fun onDestroy() {
-        VideoDecoder.stop()
+        // Signal hooked process that injection is stopping
+        RemoteConfig.clearAll(this)
         isRunning = false
         Logger.d("InjectionService destroyed")
         super.onDestroy()
