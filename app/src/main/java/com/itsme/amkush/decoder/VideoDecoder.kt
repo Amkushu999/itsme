@@ -57,19 +57,17 @@ object VideoDecoder {
 
     private var callback: Callback? = null
 
-    private val decodeRunnable = Runnable {
-        decodeLoopWithRetry()
-    }
+    private val decodeRunnable = Runnable { decodeLoopWithRetry() }
+    private val deliveryRunnable = Runnable { deliveryLoop() }
 
-    private val deliveryRunnable = Runnable {
-        deliveryLoop()
-    }
-
-    fun setCallback(callback: Callback?) {
-        this.callback = callback
-    }
+    fun setCallback(callback: Callback?) { this.callback = callback }
 
     fun getQueue(): LinkedBlockingQueue<ByteArray> = mQueue
+    fun getTargetWidth(): Int  = targetWidth
+    fun getTargetHeight(): Int = targetHeight
+    fun getTargetFps(): Int    = targetFps
+    fun getFrameCount(): Int   = frameIndex
+    fun getQueueSize(): Int    = mQueue.size
 
     fun startStream(url: String) {
         currentSource = url
@@ -89,9 +87,9 @@ object VideoDecoder {
         deliveryHandler?.removeCallbacks(deliveryRunnable)
         decoderThread?.quitSafely()
         deliveryThread?.quitSafely()
-        decoderThread = null
+        decoderThread  = null
         deliveryThread = null
-        decoderHandler = null
+        decoderHandler  = null
         deliveryHandler = null
         mQueue.clear()
         frameIndex = 0
@@ -101,17 +99,13 @@ object VideoDecoder {
     }
 
     fun setPanZoom(panX: Float, panY: Float, zoom: Float) {
-        this.panX = panX
-        this.panY = panY
-        this.zoom = zoom
+        this.panX = panX; this.panY = panY; this.zoom = zoom
     }
 
-    fun setTargetFormat(format: Int) {
-        this.targetFormat = format
-    }
+    fun setTargetFormat(format: Int) { this.targetFormat = format }
 
     fun setTargetSize(width: Int, height: Int) {
-        this.targetWidth = width
+        this.targetWidth  = width
         this.targetHeight = height
     }
 
@@ -120,7 +114,6 @@ object VideoDecoder {
             this.targetFps = fps
             Logger.d("Target FPS updated to: $fps")
             callback?.onFpsChanged(fps)
-
             if (isDecoding) {
                 deliveryHandler?.removeCallbacks(deliveryRunnable)
                 deliveryHandler?.post(deliveryRunnable)
@@ -128,19 +121,12 @@ object VideoDecoder {
         }
     }
 
-    fun getTargetFps(): Int = targetFps
-    fun getFrameCount(): Int = frameIndex
-    fun getQueueSize(): Int = mQueue.size
-
     private fun startDecoder() {
-        if (isDecoding) {
-            stop()
-        }
+        if (isDecoding) stop()
 
-        decoderThread = HandlerThread("FaceGateDecoder").apply { start() }
+        decoderThread  = HandlerThread("FaceGateDecoder").apply { start() }
         decoderHandler = Handler(decoderThread!!.looper)
-
-        deliveryThread = HandlerThread("FaceGateDelivery").apply { start() }
+        deliveryThread  = HandlerThread("FaceGateDelivery").apply { start() }
         deliveryHandler = Handler(deliveryThread!!.looper)
 
         isDecoding = true
@@ -171,7 +157,6 @@ object VideoDecoder {
                 reconnectAttempts++
                 Logger.e("Decode error (attempt $reconnectAttempts/$maxReconnectAttempts)", e)
                 callback?.onError("Reconnection attempt $reconnectAttempts: ${e.message}")
-
                 if (reconnectAttempts >= maxReconnectAttempts) {
                     callback?.onError("Max reconnection attempts ($maxReconnectAttempts) reached")
                     break
@@ -183,10 +168,8 @@ object VideoDecoder {
 
     private fun decodeLoop() {
         Logger.d("Decode loop started")
-
         var extractor: MediaExtractor? = null
         var decoder: MediaCodec? = null
-
         try {
             extractor = MediaExtractor().apply {
                 currentSource?.let { source ->
@@ -206,9 +189,7 @@ object VideoDecoder {
             val trackIndex = selectTrack(extractor)
             if (trackIndex < 0) {
                 val error = "No video track found in source"
-                Logger.e(error)
-                callback?.onError(error)
-                return
+                Logger.e(error); callback?.onError(error); return
             }
 
             extractor.selectTrack(trackIndex)
@@ -218,9 +199,8 @@ object VideoDecoder {
             decoder = MediaCodec.createDecoderByType(mime)
             logDecoderType(decoder, mime)
 
-            val caps = decoder.codecInfo.getCapabilitiesForType(mime)
-
-            val colorFormat = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
+            val caps         = decoder.codecInfo.getCapabilitiesForType(mime)
+            val colorFormat  = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible
             if (isColorFormatSupported(colorFormat, caps)) {
                 mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, colorFormat)
             }
@@ -238,7 +218,6 @@ object VideoDecoder {
                     callback?.onFinishDecode()
                 }
             }
-
         } catch (e: Exception) {
             Logger.e("Decode error", e)
             callback?.onError(e.message ?: "Decode error")
@@ -253,41 +232,25 @@ object VideoDecoder {
         try {
             val info = decoder.codecInfo
             val caps = info.getCapabilitiesForType(mime)
-
-            // Note: isHardwareAccelerated, isSoftwareOnly, isVendor require API 29+
-            // For older APIs, use name detection
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // These APIs are available on API 29+
-                // Use reflection to avoid compilation errors on older SDKs
                 try {
                     val isHardware = caps.javaClass.getMethod("isHardwareAccelerated").invoke(caps) as? Boolean ?: false
                     val isSoftware = caps.javaClass.getMethod("isSoftwareOnly").invoke(caps) as? Boolean ?: false
-                    val isVendor = caps.javaClass.getMethod("isVendor").invoke(caps) as? Boolean ?: false
-
-                    val type = when {
-                        isHardware -> "HARDWARE"
-                        isSoftware -> "SOFTWARE"
-                        else -> "UNKNOWN"
-                    }
-
+                    val isVendor   = caps.javaClass.getMethod("isVendor").invoke(caps) as? Boolean ?: false
+                    val type = when { isHardware -> "HARDWARE"; isSoftware -> "SOFTWARE"; else -> "UNKNOWN" }
                     Logger.d("Decoder: $mime -> $type (Hardware=$isHardware, Software=$isSoftware, Vendor=$isVendor)")
                     callback?.onDecoderTypeChanged(type)
-                } catch (e: Exception) {
-                    // Reflection failed
-                    fallbackDecoderDetection(info, mime)
-                }
+                } catch (e: Exception) { fallbackDecoderDetection(info, mime) }
             } else {
                 fallbackDecoderDetection(info, mime)
             }
-        } catch (e: Exception) {
-            Logger.e("Failed to detect decoder type", e)
-        }
+        } catch (e: Exception) { Logger.e("Failed to detect decoder type", e) }
     }
 
     private fun fallbackDecoderDetection(info: MediaCodecInfo, mime: String) {
-        val name = info.name
+        val name       = info.name
         val isSoftware = name.startsWith("OMX.google.") || name.startsWith("c2.android.")
-        val type = if (isSoftware) "SOFTWARE" else "HARDWARE"
+        val type       = if (isSoftware) "SOFTWARE" else "HARDWARE"
         Logger.d("Decoder: $name -> $type")
         callback?.onDecoderTypeChanged(type)
     }
@@ -301,7 +264,8 @@ object VideoDecoder {
                 val frame = mQueue.poll(intervalMs.toLong(), TimeUnit.MILLISECONDS)
 
                 if (frame != null && frame.isNotEmpty()) {
-                    AppState.dataBuffer = frame
+                    // Use putFrame so hooks can read source dimensions for scaling
+                    AppState.putFrame(frame, targetWidth, targetHeight)
 
                     framesSinceLastFpsUpdate++
                     val now = System.currentTimeMillis()
@@ -310,19 +274,14 @@ object VideoDecoder {
                         framesSinceLastFpsUpdate = 0
                         lastFpsUpdateTime = now
                     }
-
                     callback?.onDecodeFrame(frame, frameIndex)
                     callback?.onQueueSizeChanged(mQueue.size)
                     frameIndex++
                 }
-
-                if (frame == null) {
-                    Thread.sleep(1)
-                }
+                if (frame == null) Thread.sleep(1)
 
             } catch (e: InterruptedException) {
-                Logger.d("Delivery loop interrupted")
-                break
+                Logger.d("Delivery loop interrupted"); break
             } catch (e: Exception) {
                 Logger.e("Delivery error", e)
             }
@@ -331,24 +290,20 @@ object VideoDecoder {
     }
 
     private fun selectTrack(extractor: MediaExtractor): Int {
-        val numTracks = extractor.trackCount
-        for (i in 0 until numTracks) {
-            val format = extractor.getTrackFormat(i)
-            val mime = format.getString(MediaFormat.KEY_MIME)
-            if (mime?.startsWith("video/") == true) {
-                return i
-            }
+        for (i in 0 until extractor.trackCount) {
+            val fmt  = extractor.getTrackFormat(i)
+            val mime = fmt.getString(MediaFormat.KEY_MIME)
+            if (mime?.startsWith("video/") == true) return i
         }
         return -1
     }
 
-    private fun isColorFormatSupported(colorFormat: Int, caps: MediaCodecInfo.CodecCapabilities): Boolean {
-        return caps.colorFormats.any { it == colorFormat }
-    }
+    private fun isColorFormatSupported(colorFormat: Int, caps: MediaCodecInfo.CodecCapabilities) =
+        caps.colorFormats.any { it == colorFormat }
 
     private fun decodeFrames(decoder: MediaCodec, extractor: MediaExtractor, mediaFormat: MediaFormat): Boolean {
-        val info = MediaCodec.BufferInfo()
-        var sawInputEOS = false
+        val info        = MediaCodec.BufferInfo()
+        var sawInputEOS  = false
         var sawOutputEOS = false
         var hasMoreFrames = false
         val timeoutUs: Long = 10000
@@ -361,17 +316,10 @@ object VideoDecoder {
                     inputBuffer?.let { buffer ->
                         val sampleSize = extractor.readSampleData(buffer, 0)
                         if (sampleSize < 0) {
-                            decoder.queueInputBuffer(
-                                inputBufferId, 0, 0, 0L,
-                                MediaCodec.BUFFER_FLAG_END_OF_STREAM
-                            )
+                            decoder.queueInputBuffer(inputBufferId, 0, 0, 0L, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
                             sawInputEOS = true
                         } else {
-                            val presentationTimeUs = extractor.sampleTime
-                            decoder.queueInputBuffer(
-                                inputBufferId, 0, sampleSize,
-                                presentationTimeUs, 0
-                            )
+                            decoder.queueInputBuffer(inputBufferId, 0, sampleSize, extractor.sampleTime, 0)
                             extractor.advance()
                             hasMoreFrames = true
                         }
@@ -382,18 +330,15 @@ object VideoDecoder {
             val outputBufferId = decoder.dequeueOutputBuffer(info, timeoutUs)
             if (outputBufferId >= 0) {
                 if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                    sawOutputEOS = true
+                    sawOutputEOS  = true
                     hasMoreFrames = false
                 }
-
                 if (info.size > 0) {
                     val image = decoder.getOutputImage(outputBufferId)
                     image?.let { img ->
                         val data = convertImageToFormat(img)
                         if (data.isNotEmpty()) {
-                            try {
-                                mQueue.put(data)
-                            } catch (e: InterruptedException) {
+                            try { mQueue.put(data) } catch (e: InterruptedException) {
                                 Logger.e("Queue put interrupted", e)
                             }
                         }
@@ -405,31 +350,17 @@ object VideoDecoder {
                 }
             }
         }
-
         return hasMoreFrames
     }
 
-    private fun convertImageToFormat(image: Image): ByteArray {
-        return when (targetFormat) {
-            ImageFormat.NV21, ImageFormat.YUV_420_888 -> {
-                convertToNV21(image)
-            }
-            ImageFormat.JPEG -> {
-                convertToJPEG(image)
-            }
-            else -> {
-                convertToNV21(image)
-            }
-        }
+    private fun convertImageToFormat(image: Image): ByteArray = when (targetFormat) {
+        ImageFormat.NV21, ImageFormat.YUV_420_888 -> convertToNV21(image)
+        ImageFormat.JPEG                          -> convertToJPEG(image)
+        else                                      -> convertToNV21(image)
     }
 
     /**
      * Stride-aware YUV_420_888 → NV21 conversion.
-     *
-     * The naive `buffer.remaining()` approach incorrectly includes row-padding bytes
-     * when rowStride > width, producing garbled frames.  This version strips padding
-     * from the Y plane and correctly interleaves V then U (NV21 order) using the
-     * per-pixel stride so packed and semi-planar layouts both work.
      */
     private fun convertToNV21(image: Image): ByteArray {
         val w = image.width
@@ -445,7 +376,6 @@ object VideoDecoder {
 
         val nv21 = ByteArray(w * h + w * (h / 2))
 
-        // Copy Y plane — strip row padding
         val yBuf = yPlane.buffer
         for (row in 0 until h) {
             val srcPos = row * yRowStride
@@ -454,7 +384,6 @@ object VideoDecoder {
             yBuf.get(nv21, row * w, w)
         }
 
-        // Interleave V then U into the chroma half (NV21 = Y…VU…)
         val uBuf    = uPlane.buffer
         val vBuf    = vPlane.buffer
         val vuStart = w * h
@@ -466,11 +395,10 @@ object VideoDecoder {
                 val uvPos  = row * uvRowStride + col * uvPixelStride
                 val dstPos = vuStart + row * w + col * 2
                 if (dstPos + 1 >= nv21.size) break
-                if (uvPos < vBuf.limit()) nv21[dstPos]     = vBuf.get(uvPos)   // V
-                if (uvPos < uBuf.limit()) nv21[dstPos + 1] = uBuf.get(uvPos)   // U
+                if (uvPos < vBuf.limit()) nv21[dstPos]     = vBuf.get(uvPos)
+                if (uvPos < uBuf.limit()) nv21[dstPos + 1] = uBuf.get(uvPos)
             }
         }
-
         return nv21
     }
 
@@ -482,19 +410,12 @@ object VideoDecoder {
     }
 
     private fun imageToBitmap(image: Image): Bitmap {
-        val nv21 = convertToNV21(image)
-        val yuvImage = android.graphics.YuvImage(
-            nv21,
-            ImageFormat.NV21,
-            image.width,
-            image.height,
-            null
-        )
-        val out = ByteArrayOutputStream()
-        val rect = android.graphics.Rect(0, 0, image.width, image.height)
-        yuvImage.compressToJpeg(rect, 75, out)
+        val nv21    = convertToNV21(image)
+        val yuvImage = android.graphics.YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+        val out     = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(android.graphics.Rect(0, 0, image.width, image.height), 75, out)
         val imageBytes = out.toByteArray()
-        val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+        val bitmap  = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
         return if (zoom != 1f || panX != 0f || panY != 0f) applyPanZoomToBitmap(bitmap) else bitmap
     }
 
