@@ -7,15 +7,15 @@ import com.itsme.amkush.utils.Logger
 
 object CameraState {
 
-    var currentFormat: Int = ImageFormat.NV21
-    var currentWidth: Int = 640
-    var currentHeight: Int = 480
-    var requestedFps: Int = 30
-    var isPreviewActive: Boolean = false
-    var isCaptureActive: Boolean = false
+    @Volatile var currentFormat: Int = ImageFormat.NV21
+    @Volatile var currentWidth: Int = 640
+    @Volatile var currentHeight: Int = 480
+    @Volatile var requestedFps: Int = 30
+    @Volatile var isPreviewActive: Boolean = false
+    @Volatile var isCaptureActive: Boolean = false
 
-    private val surfaceConfigs = mutableMapOf<Surface, SurfaceConfig>()
-    private val allSurfaces = mutableListOf<Surface>()
+    private val surfaceConfigs = java.util.concurrent.ConcurrentHashMap<Surface, SurfaceConfig>()
+    private val allSurfaces = java.util.concurrent.CopyOnWriteArrayList<Surface>()
 
     var camera1Instance: Any? = null
     var camera1Holder: SurfaceHolder? = null
