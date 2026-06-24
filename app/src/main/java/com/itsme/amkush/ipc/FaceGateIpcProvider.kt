@@ -21,7 +21,7 @@ class FaceGateIpcProvider : ContentProvider() {
         val BASE_URI: Uri = Uri.parse("content://$AUTHORITY/$BASE_PATH")
     }
 
-    private fun prefs() = context!!.getSharedPreferences("facegate_ipc", Context.MODE_PRIVATE)
+    private fun prefs() = context?.getSharedPreferences("facegate_ipc", Context.MODE_PRIVATE)
 
     override fun onCreate(): Boolean = true
 
@@ -30,7 +30,7 @@ class FaceGateIpcProvider : ContentProvider() {
         selection: String?, selectionArgs: Array<String>?, sortOrder: String?
     ): Cursor? {
         val key    = uri.lastPathSegment ?: return null
-        val value  = prefs().getString(key, null)
+        val value  = prefs()?.getString(key, null)
         val cursor = MatrixCursor(arrayOf(COL_KEY, COL_VALUE))
         if (value != null) cursor.addRow(arrayOf(key, value))
         return cursor
@@ -40,7 +40,7 @@ class FaceGateIpcProvider : ContentProvider() {
         values ?: return null
         val key   = uri.lastPathSegment ?: (values.getAsString(COL_KEY) ?: return null)
         val value = values.getAsString(COL_VALUE)
-        val ed    = prefs().edit()
+        val ed    = prefs()?.edit() ?: return null
         if (value == null) ed.remove(key) else ed.putString(key, value)
         ed.apply()
         context?.contentResolver?.notifyChange(uri, null)
@@ -49,7 +49,7 @@ class FaceGateIpcProvider : ContentProvider() {
 
     override fun delete(uri: Uri, selection: String?, selectionArgs: Array<String>?): Int {
         val key = uri.lastPathSegment ?: return 0
-        prefs().edit().remove(key).apply()
+        prefs()?.edit()?.remove(key)?.apply()
         context?.contentResolver?.notifyChange(uri, null)
         return 1
     }
