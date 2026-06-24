@@ -13,7 +13,6 @@ import android.view.Surface
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.AppState
 import com.itsme.amkush.decoder.FrameUtils
-import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import android.graphics.ImageFormat
 import com.itsme.amkush.DecoderLauncher
@@ -37,7 +36,6 @@ object Camera2Hooks {
                 val fps = (1000L / deltaMs).toInt().coerceIn(1, 120)
                 if (fps != CameraState.requestedFps) {
                     CameraState.requestedFps = fps
-                    VideoDecoder.setTargetFps(fps)
                 }
             }
         }
@@ -80,9 +78,6 @@ object Camera2Hooks {
                     CameraState.currentWidth  = width
                     CameraState.currentHeight = height
                     CameraState.currentFormat = format
-
-                    VideoDecoder.setTargetSize(width, height)
-                    VideoDecoder.setTargetFormat(format)
 
                     Logger.d("ImageReader created: ${width}x${height}, format=$format")
                 }
@@ -335,7 +330,6 @@ object Camera2Hooks {
                 if (fpsRange is Range<*>) {
                     val max = fpsRange.upper as Int
                     CameraState.requestedFps = max
-                    VideoDecoder.setTargetFps(max)
                 }
             }
         } catch (e: Throwable) {
@@ -415,8 +409,6 @@ object Camera2Hooks {
                                         CameraState.currentWidth  = img.width
                                         CameraState.currentHeight = img.height
                                         CameraState.currentFormat = img.format
-                                        VideoDecoder.setTargetSize(img.width, img.height)
-                                        VideoDecoder.setTargetFormat(img.format)
                                         Logger.d("Camera2 on-the-fly: ${img.width}x${img.height} fmt=${img.format}")
                                     }
                                     updateFpsEstimate()
@@ -550,7 +542,6 @@ object Camera2Hooks {
                                 if (fpsRange is Range<*>) {
                                     val max = fpsRange.upper as Int
                                     CameraState.requestedFps = max
-                                    VideoDecoder.setTargetFps(max)
                                 }
                             } catch (e: Throwable) {
                                 // Ignore if key not present
@@ -586,7 +577,6 @@ object Camera2Hooks {
                                 if (fpsRange is Range<*>) {
                                     val max = fpsRange.upper as Int
                                     CameraState.requestedFps = max
-                                    VideoDecoder.setTargetFps(max)
                                 }
                             } catch (e: Throwable) {
                                 // Ignore
