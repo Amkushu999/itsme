@@ -19,7 +19,7 @@ package com.itsme.amkush.services
           private const val CHANNEL_ID      = "facegate_injection_channel"
           private const val CHANNEL_NAME    = "FaceGate Injection Service"
 
-          var isRunning = false
+          @Volatile var isRunning = false
               private set
 
           fun start(
