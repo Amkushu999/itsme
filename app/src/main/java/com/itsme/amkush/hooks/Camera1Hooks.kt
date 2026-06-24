@@ -8,7 +8,6 @@ import com.itsme.amkush.AppState
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.DecoderLauncher
 import com.itsme.amkush.decoder.FrameUtils
-import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -75,17 +74,14 @@ object Camera1Hooks {
                     if (size != null) {
                         CameraState.currentWidth  = size.width
                         CameraState.currentHeight = size.height
-                        VideoDecoder.setTargetSize(size.width, size.height)
                     }
 
-                    VideoDecoder.setTargetFormat(CameraState.currentFormat)
 
                     val fpsRange = IntArray(2)
                     params.getPreviewFpsRange(fpsRange)
                     if (fpsRange.size >= 2) {
                         val maxFps = fpsRange[1] / 1000
                         CameraState.requestedFps = maxFps
-                        VideoDecoder.setTargetFps(maxFps)
                     }
 
                     Logger.d("Camera1 params: ${CameraState.currentWidth}x${CameraState.currentHeight}, format=${CameraState.currentFormat}, fps=${CameraState.requestedFps}")
@@ -231,15 +227,12 @@ object Camera1Hooks {
                                     if (sz != null) {
                                         CameraState.currentWidth  = sz.width
                                         CameraState.currentHeight = sz.height
-                                        VideoDecoder.setTargetSize(sz.width, sz.height)
                                     }
                                     CameraState.currentFormat = p.previewFormat
-                                    VideoDecoder.setTargetFormat(CameraState.currentFormat)
                                     val fpsRange = IntArray(2)
                                     p.getPreviewFpsRange(fpsRange)
                                     val fps = (fpsRange[1] / 1000).coerceIn(1, 120)
                                     CameraState.requestedFps = fps
-                                    VideoDecoder.setTargetFps(fps)
                                     Logger.d("Camera1 on-the-fly discovery: ${sz?.width}x${sz?.height}")
                                 } catch (e: Throwable) {
                                     Logger.e("Camera1 dynamic discovery failed", e)
