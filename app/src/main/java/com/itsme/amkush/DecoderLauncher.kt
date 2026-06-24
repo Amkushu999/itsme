@@ -20,6 +20,12 @@ package com.itsme.amkush
        * Reads RemoteConfig once, then never again until [reset] or [stop].
        */
       fun ensureLaunched() {
+          // If the decoder was launched but has since stopped on its own (e.g. exhausted
+          // all reconnect retries), clear the flag so we can restart it.
+          if (launched && !FfmpegStreamer.isRunning()) {
+              launched = false
+              Logger.d("DecoderLauncher: decoder stopped on its own — will relaunch")
+          }
           if (launched) return
           val ctx = AppState.context ?: return
           synchronized(this) {
