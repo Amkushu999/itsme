@@ -6,13 +6,10 @@ package com.itsme.amkush
 
   /**
    * Decides which source to decode inside the hooked target-app process,
-   * then starts [FfmpegStreamer]. Called from:
+   * then drives [FfmpegStreamer].  Called from:
    *   - MainHook.hookApplication — immediately after isHookingActive = true
-   *   - Camera hook first-frame path — handles apps already running at inject time
-   *
-   * [FfmpegStreamer] replaces both the former LibVlcStreamer (network) and
-   * VideoDecoder (local file) with a single FFmpeg-kit engine: guaranteed
-   * hardware-accelerated decode, direct NV21 pipe delivery, automatic SW fallback.
+   *   - Camera hook first-frame path — handles apps already open at inject time
+   *   - ConfigUpdateReceiver — for live URL changes without restarting the target app
    */
   object DecoderLauncher {
 
@@ -38,25 +35,48 @@ package com.itsme.amkush
 
               when {
                   !mediaUri.isNullOrEmpty() -> {
-                      Logger.d("DecoderLauncher: starting FfmpegStreamer for local media: $mediaUri")
+                      Logger.d("DecoderLauncher: starting for local media: $mediaUri")
                       FfmpegStreamer.startMedia(mediaUri)
                       launched = true
                   }
                   !streamUrl.isNullOrEmpty() -> {
-                      Logger.d("DecoderLauncher: starting FfmpegStreamer for stream: $streamUrl")
+                      Logger.d("DecoderLauncher: starting for stream: $streamUrl")
                       FfmpegStreamer.startStream(streamUrl)
                       launched = true
                   }
-                  else -> {
-                      Logger.d("DecoderLauncher: no source configured in RemoteConfig")
+                  else -> Logger.d("DecoderLauncher: no source configured yet")
+              }
+          }
+      }
+
+      /**
+       * Immediately swap to a new URL — called by [ConfigUpdateReceiver] when
+       * the user changes the stream URL while the target app is already running.
+       * Stops the current decode session and starts a fresh one.
+       */
+      fun restart(streamUrl: String?, mediaUri: String?) {
+          synchronized(this) {
+              FfmpegStreamer.stop()
+              launched = false
+              when {
+                  !mediaUri.isNullOrEmpty()  -> {
+                      Logger.d("DecoderLauncher: restarting for media: $mediaUri")
+                      FfmpegStreamer.startMedia(mediaUri!!)
+                      launched = true
                   }
+                  !streamUrl.isNullOrEmpty() -> {
+                      Logger.d("DecoderLauncher: restarting for stream: $streamUrl")
+                      FfmpegStreamer.startStream(streamUrl!!)
+                      launched = true
+                  }
+                  else -> Logger.d("DecoderLauncher.restart: no URL supplied — staying stopped")
               }
           }
       }
 
       /**
        * Stop the active decoder and allow [ensureLaunched] to re-run
-       * on the next camera frame. Call when InjectionService is stopped.
+       * on the next camera frame.
        */
       fun stop() {
           synchronized(this) {
@@ -66,8 +86,8 @@ package com.itsme.amkush
       }
 
       /**
-       * Reset without stopping — use when the target process is reinitialised
-       * or a decoder has recovered. The next [ensureLaunched] call restarts
+       * Reset without stopping — use when the target process is re-initialised
+       * or a decoder has recovered.  The next [ensureLaunched] call restarts
        * with fresh RemoteConfig.
        */
       fun reset() {
