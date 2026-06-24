@@ -29,7 +29,6 @@ object Camera1Hooks {
             hookSetPreviewCallbackWithBuffer(cameraClass)
             hookAddCallbackBuffer(cameraClass)
             hookSetOneShotPreviewCallback(cameraClass)
-            hookOnPreviewFrame()
             hookTakePicture(cameraClass)
             hookSetPreviewDisplay(cameraClass)
             hookSetPreviewTexture(cameraClass)
@@ -200,50 +199,6 @@ object Camera1Hooks {
                         }
                         param.args[0] = wrappedCallback
                         Logger.d("Camera1 setOneShotPreviewCallback hooked")
-                    }
-                }
-            }
-        )
-    }
-
-    private fun hookOnPreviewFrame() {
-        val previewCallbackClass = Camera.PreviewCallback::class.java
-
-        XposedHelpers.findAndHookMethod(
-            previewCallbackClass,
-            "onPreviewFrame",
-            ByteArray::class.java,
-            Camera::class.java,
-            object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    if (AppState.isHookingActive) {
-                        // On-the-fly parameter discovery when camera was already running
-                        if (CameraState.currentWidth <= 0) {
-                            val camera = param.args[1] as? Camera
-                            if (camera != null) {
-                                try {
-                                    val p  = camera.parameters
-                                    val sz = p.previewSize
-                                    if (sz != null) {
-                                        CameraState.currentWidth  = sz.width
-                                        CameraState.currentHeight = sz.height
-                                    }
-                                    CameraState.currentFormat = p.previewFormat
-                                    val fpsRange = IntArray(2)
-                                    p.getPreviewFpsRange(fpsRange)
-                                    val fps = (fpsRange[1] / 1000).coerceIn(1, 120)
-                                    CameraState.requestedFps = fps
-                                    Logger.d("Camera1 on-the-fly discovery: ${sz?.width}x${sz?.height}")
-                                } catch (e: Throwable) {
-                                    Logger.e("Camera1 dynamic discovery failed", e)
-                                }
-                            }
-                        }
-                        // Ensure decoder is running (handles apps already running at inject time)
-                        DecoderLauncher.ensureLaunched()
-
-                        val data = param.args[0] as ByteArray
-                        injectFrame(data)
                     }
                 }
             }
