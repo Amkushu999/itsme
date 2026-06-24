@@ -81,6 +81,9 @@ plugins {
       // Video decoding uses Android's built-in MediaExtractor + MediaCodec + ImageReader —
       // no external library required.  Supports RTSP, HLS, local files out of the box.
 
+      // VLC for in-app stream preview dialog
+      implementation("org.videolan.android:libvlc-all:3.6.0")
+
       implementation("androidx.camera:camera-core:1.4.1")
       implementation("androidx.camera:camera-camera2:1.4.1")
 
