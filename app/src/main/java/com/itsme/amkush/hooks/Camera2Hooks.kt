@@ -24,7 +24,7 @@ import java.io.ByteArrayOutputStream
 object Camera2Hooks {
 
     private const val TAG = "FaceGate"
-    private val virtualSurfaceMap = mutableMapOf<Surface, Surface>()
+    private val virtualSurfaceMap = java.util.concurrent.ConcurrentHashMap<Surface, Surface>()
     private var surfaceCount = 0
     private var lastFrameTimeNs: Long = 0
 
