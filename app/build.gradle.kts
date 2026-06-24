@@ -78,9 +78,8 @@ plugins {
       implementation("com.squareup.retrofit2:retrofit:2.11.0")
       implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
-      // FFmpeg-kit — replaces LibVLC. 6.0.LTS is the latest stable on Maven Central.
-      // Guaranteed HW decode (h264_mediacodec), direct NV21 pipe, RTSP/RTMP/HLS/SRT support.
-      implementation("com.arthenica:ffmpeg-kit-full:6.0.LTS")
+      // Video decoding uses Android's built-in MediaExtractor + MediaCodec + ImageReader —
+      // no external library required.  Supports RTSP, HLS, local files out of the box.
 
       implementation("androidx.camera:camera-core:1.4.1")
       implementation("androidx.camera:camera-camera2:1.4.1")
