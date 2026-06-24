@@ -71,30 +71,41 @@ object CameraXHooks {
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         if (AppState.isHookingActive) {
-                            val originalAnalyzer = param.args[1]
+                            val originalAnalyzer = param.args[1] ?: return
+                            val analyzeMethod = try {
+                                originalAnalyzer.javaClass.getMethod("analyze", imageProxyClass)
+                            } catch (e: Throwable) {
+                                Logger.e("CameraX: cannot find analyze() on analyzer", e)
+                                return
+                            }
 
-                            val wrappedAnalyzer = object {
-                                fun analyze(imageProxy: Any) {
+                            // Use a Java dynamic Proxy so the wrapper properly implements
+                            // ImageAnalysis.Analyzer from the target app's ClassLoader.
+                            // An anonymous Kotlin object would cause ClassCastException when
+                            // CameraX tries to call analyzer.analyze(imageProxy).
+                            val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                                originalAnalyzer.javaClass.classLoader,
+                                arrayOf(analyzerClass)
+                            ) { _, method, args ->
+                                if (method.name == "analyze" && args?.size == 1) {
+                                    val imageProxy = args[0]
                                     try {
-                                        val method = originalAnalyzer.javaClass.getMethod("analyze", imageProxyClass)
-                                        // Single atomic snapshot
                                         val frame = AppState.currentFrame
                                         if (!frame.isEmpty) {
-                                            val fakeImage = createFakeImageProxy(imageProxy, frame)
-                                            if (fakeImage != null) {
-                                                method.invoke(originalAnalyzer, fakeImage)
-                                                return
-                                            }
+                                            createFakeImageProxy(imageProxy, frame)
                                         }
-                                        method.invoke(originalAnalyzer, imageProxy)
+                                        analyzeMethod.invoke(originalAnalyzer, imageProxy)
                                     } catch (e: Throwable) {
-                                        Logger.e("Analyzer wrap error", e)
+                                        Logger.e("CameraX Analyzer proxy error", e)
+                                        analyzeMethod.invoke(originalAnalyzer, imageProxy)
                                     }
+                                } else {
+                                    method.invoke(originalAnalyzer, *(args ?: emptyArray()))
                                 }
                             }
 
-                            param.args[1] = wrappedAnalyzer
-                            Logger.d("CameraX setAnalyzer hooked")
+                            param.args[1] = proxy
+                            Logger.d("CameraX setAnalyzer hooked (Proxy)")
                         }
                     }
                 }
