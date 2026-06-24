@@ -7,7 +7,6 @@ import com.itsme.amkush.AppState
 import com.itsme.amkush.CameraState
 import com.itsme.amkush.DecoderLauncher
 import com.itsme.amkush.decoder.FrameUtils
-import com.itsme.amkush.decoder.VideoDecoder
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
@@ -26,7 +25,6 @@ object CameraXHooks {
                 val fps = (1000L / deltaMs).toInt().coerceIn(1, 120)
                 if (fps != CameraState.requestedFps) {
                     CameraState.requestedFps = fps
-                    VideoDecoder.setTargetFps(fps)
                 }
             }
         }
@@ -128,7 +126,6 @@ object CameraXHooks {
                         if (size != null) {
                             CameraState.currentWidth  = size.width
                             CameraState.currentHeight = size.height
-                            VideoDecoder.setTargetSize(size.width, size.height)
                             Logger.d("CameraX target resolution: ${size.width}x${size.height}")
                         }
                     }
@@ -195,7 +192,6 @@ object CameraXHooks {
                             val max = fpsRange.upper as Int
                             Logger.d("CameraX ImageAnalysis setTargetFps: $max")
                             CameraState.requestedFps = max
-                            VideoDecoder.setTargetFps(max)
                         }
                     }
                 }
@@ -225,7 +221,6 @@ object CameraXHooks {
                             val max = fpsRange.upper as Int
                             Logger.d("CameraX VideoCapture setTargetFps: $max")
                             CameraState.requestedFps = max
-                            VideoDecoder.setTargetFps(max)
                         }
                     }
                 }
@@ -367,7 +362,6 @@ object CameraXHooks {
                     val max = fps.upper as Int
                     Logger.d("CameraX UseCase targetFps: $max")
                     CameraState.requestedFps = max
-                    VideoDecoder.setTargetFps(max)
                 }
             } catch (e: Throwable) { /* Method not available */ }
 
@@ -378,7 +372,6 @@ object CameraXHooks {
                     val max = fps.upper as Int
                     Logger.d("CameraX UseCase targetFrameRate: $max")
                     CameraState.requestedFps = max
-                    VideoDecoder.setTargetFps(max)
                 }
             } catch (e: Throwable) { /* Method not available */ }
 
@@ -389,7 +382,6 @@ object CameraXHooks {
                     val max = fps.upper as Int
                     Logger.d("CameraX UseCase frameRateRange: $max")
                     CameraState.requestedFps = max
-                    VideoDecoder.setTargetFps(max)
                 }
             } catch (e: Throwable) { /* Method not available */ }
         } catch (e: Throwable) {
@@ -435,8 +427,6 @@ object CameraXHooks {
                     CameraState.currentWidth  = w
                     CameraState.currentHeight = h
                     CameraState.currentFormat = fmt
-                    VideoDecoder.setTargetSize(w, h)
-                    VideoDecoder.setTargetFormat(fmt)
                     Logger.d("CameraX on-the-fly discovery: ${w}x${h}, fmt=$fmt")
                 }
             } catch (_: Throwable) {}
