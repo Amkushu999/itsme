@@ -1,107 +1,132 @@
 package com.itsme.amkush.ui
 
-import android.animation.ValueAnimator
 import android.content.Intent
-import android.graphics.drawable.Animatable
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.view.View
-import android.view.animation.AccelerateDecelerateInterpolator
-import android.widget.ImageView
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.animation.doOnEnd
-import com.itsme.amkush.R
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 
-class SplashScreenActivity : AppCompatActivity() {
-
-    private lateinit var tvUser: TextView
-    private lateinit var tvPrompt: TextView
-    private lateinit var tvCommand: TextView
-    private lateinit var tvCursor: TextView
-    private lateinit var ivCheckmark: ImageView
-
-    private val handler = Handler(Looper.getMainLooper())
+class SplashScreenActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_splash)
+        setContent {
+            SplashContent(onNavigate = {
+                val intent = Intent(this, HomeScreen::class.java)
+                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+                finish()
+            })
+        }
+    }
+}
 
-        initViews()
-        animateText()
+@Composable
+private fun SplashContent(onNavigate: () -> Unit) {
+    val bgColor = Color(0xFF0D0D18)
+    val violet  = Color(0xFF6C63FF)
+    val green   = Color(0xFF4ADE80)
+
+    var showUser    by remember { mutableStateOf(false) }
+    var showPrompt  by remember { mutableStateOf(false) }
+    var showCommand by remember { mutableStateOf(false) }
+    var showCheck   by remember { mutableStateOf(false) }
+    var cursorAlpha by remember { mutableFloatStateOf(1f) }
+
+    val cursorAnim = rememberInfiniteTransition(label = "cursor")
+    val blink by cursorAnim.animateFloat(
+        initialValue = 1f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(600), RepeatMode.Reverse),
+        label = "blink"
+    )
+    val checkScale by animateFloatAsState(
+        targetValue = if (showCheck) 1f else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "checkScale"
+    )
+
+    LaunchedEffect(Unit) {
+        delay(300)
+        showUser = true
+        delay(150)
+        showPrompt = true
+        delay(150)
+        showCommand = true
+        delay(600)
+        showCheck = true
+        delay(1300)
+        onNavigate()
     }
 
-    private fun initViews() {
-        tvUser = findViewById(R.id.tvUser)
-        tvPrompt = findViewById(R.id.tvPrompt)
-        tvCommand = findViewById(R.id.tvCommand)
-        tvCursor = findViewById(R.id.tvCursor)
-        ivCheckmark = findViewById(R.id.ivCheckmark)
-    }
-
-    private fun animateText() {
-        handler.postDelayed({
-            tvUser.text = "user@FaceGate"
-            tvPrompt.text = ":~❯ "
-            tvCommand.text = "Happy Hooking"
-
-            handler.postDelayed({
-                animateCheckmark()
-            }, 600)
-
-            handler.postDelayed({
-                startCursorBlinking()
-            }, 200)
-
-        }, 300)
-    }
-
-    private fun animateCheckmark() {
-        ivCheckmark.visibility = View.VISIBLE
-        ivCheckmark.setImageResource(R.drawable.ic_checkmark_animated)
-
-        // Start the animation
-        (ivCheckmark.drawable as? Animatable)?.start()
-
-        // Scale animation for the checkmark
-        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 500
-            interpolator = AccelerateDecelerateInterpolator()
-            addUpdateListener {
-                val scale = it.animatedValue as Float
-                ivCheckmark.scaleX = scale
-                ivCheckmark.scaleY = scale
-                ivCheckmark.alpha = scale
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgColor),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier.padding(32.dp),
+            horizontalAlignment = Alignment.Start
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                AnimatedVisibility(visible = showUser, enter = fadeIn()) {
+                    Text(
+                        text = "user@FaceGate",
+                        color = green,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+                AnimatedVisibility(visible = showPrompt, enter = fadeIn()) {
+                    Text(
+                        text = ":~❯ ",
+                        color = violet,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    )
+                }
+                AnimatedVisibility(visible = showCommand, enter = fadeIn()) {
+                    Text(
+                        text = "Happy Hooking",
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 18.sp
+                    )
+                }
+                if (showCommand && !showCheck) {
+                    Text(
+                        text = "█",
+                        color = Color.White.copy(alpha = blink),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 18.sp
+                    )
+                }
             }
-            doOnEnd {
-                handler.postDelayed({
-                    navigateToHomeScreen()
-                }, 800)
+            if (showCheck) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "✔",
+                    color = green,
+                    fontSize = (22 * checkScale).sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
-        animator.start()
-    }
-
-    private fun startCursorBlinking() {
-        tvCursor.visibility = View.VISIBLE
-
-        val blinkAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 800
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            addUpdateListener {
-                tvCursor.alpha = it.animatedValue as Float
-            }
-        }
-        blinkAnimator.start()
-    }
-
-    private fun navigateToHomeScreen() {
-        val intent = Intent(this, HomeScreen::class.java)
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(intent)
-        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
-        finish()
     }
 }

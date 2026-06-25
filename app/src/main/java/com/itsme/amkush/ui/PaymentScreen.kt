@@ -6,273 +6,351 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.text.Editable
-import android.text.TextWatcher
-import android.view.View
-import android.widget.*
-import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
-import com.itsme.amkush.R
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.*
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.*
+import androidx.compose.ui.graphics.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.*
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.*
 import com.itsme.amkush.network.ApiClient
 import com.itsme.amkush.network.models.ValidateRequest
 import com.itsme.amkush.utils.DeviceUtils
 import com.itsme.amkush.utils.Logger
 import com.itsme.amkush.utils.SharedPrefs
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 
-class PaymentScreen : AppCompatActivity() {
+private val BgDark  = Color(0xFF0D0D18)
+private val Surface = Color(0x12FFFFFF)
+private val Border  = Color(0x1AFFFFFF)
+private val Violet  = Color(0xFF6C63FF)
+private val Pink    = Color(0xFFFF4D9D)
+private val RedErr  = Color(0xFFFF4D6D)
+private val YellWarn= Color(0xFFFACC15)
+private val TextSec = Color(0x44FFFFFF)
+private val TextMid = Color(0x88FFFFFF)
 
-    private lateinit var etActivationKey: EditText
-    private lateinit var btnActivate: TextView
-    private lateinit var tvDeviceId: TextView
-    private lateinit var tvTargetApp: TextView
-    private lateinit var tvTargetPackage: TextView
-    private lateinit var tvStatus: TextView
-    private lateinit var progressBar: ProgressBar
-    private lateinit var btnCopyDeviceId: TextView
-    private lateinit var btnBot: TextView
-
-    private var targetPackage: String? = null
-    private var targetAppName: String? = null
+class PaymentScreen : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_payment)
 
-        // Get intent data
-        targetPackage = intent.getStringExtra("target_package")
-        targetAppName = intent.getStringExtra("target_app_name")
+        val targetPackage  = intent.getStringExtra("target_package")
+        val targetAppName  = intent.getStringExtra("target_app_name")
 
-        initViews()
-        setupUI()
-        setupListeners()
-        loadDeviceId()
-        checkForTrialKey()
-    }
+        SharedPrefs.init(this)
 
-    private fun initViews() {
-        etActivationKey = findViewById(R.id.etActivationKey)
-        btnActivate = findViewById(R.id.btnActivate)
-        tvDeviceId = findViewById(R.id.tvDeviceId)
-        tvTargetApp = findViewById(R.id.tvTargetApp)
-        tvTargetPackage = findViewById(R.id.tvTargetPackage)
-        tvStatus = findViewById(R.id.tvStatus)
-        progressBar = findViewById(R.id.progressBar)
-        btnCopyDeviceId = findViewById(R.id.btnCopyDeviceId)
-        btnBot = findViewById(R.id.btnBot)
-    }
-
-    private fun setupUI() {
-        // Set target app info
-        if (!targetAppName.isNullOrEmpty()) {
-            tvTargetApp.text = targetAppName
-        } else {
-            tvTargetApp.text = "No target selected"
-        }
-
-        if (!targetPackage.isNullOrEmpty()) {
-            tvTargetPackage.text = targetPackage
-        } else {
-            tvTargetPackage.visibility = View.GONE
-        }
-
-        // Bot button
-        btnBot.setOnClickListener {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/facegateofficialbot"))
-            startActivity(intent)
-        }
-
-        // Copy device ID
-        btnCopyDeviceId.setOnClickListener {
-            val deviceId = tvDeviceId.text.toString()
-            if (deviceId.isNotEmpty()) {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                val clip = ClipData.newPlainText("Device ID", deviceId)
-                clipboard.setPrimaryClip(clip)
-                Toast.makeText(this, "Device ID copied!", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        // Back button
-        findViewById<ImageView>(R.id.btnBack).setOnClickListener {
-            finish()
-        }
-    }
-
-    private fun setupListeners() {
-        etActivationKey.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-            override fun afterTextChanged(s: Editable?) {
-                // Clear status when typing
-                tvStatus.visibility = View.GONE
-            }
-        })
-
-        btnActivate.setOnClickListener {
-            val key = etActivationKey.text.toString().trim()
-            if (key.isEmpty()) {
-                tvStatus.text = "Please enter an activation key"
-                tvStatus.visibility = View.VISIBLE
-                tvStatus.setTextColor(ContextCompat.getColor(this, R.color.error_red))
-                return@setOnClickListener
-            }
-
-            // Check if it's the trial key
-            if (key.uppercase() == "NOWORNEVER") {
-                activateTrial()
-            } else {
-                activatePaid(key)
-            }
-        }
-    }
-
-    private fun loadDeviceId() {
-        val deviceId = DeviceUtils.getFormattedDeviceId(this)
-        tvDeviceId.text = deviceId
-        SharedPrefs.setDeviceId(deviceId)
-    }
-
-    private fun checkForTrialKey() {
-        // Check if user has an active trial
+        // Check active trial
         val isTrial = SharedPrefs.isTrial()
-        val expiry = SharedPrefs.getTrialExpiry()
-
+        val expiry  = SharedPrefs.getTrialExpiry()
         if (isTrial && expiry > System.currentTimeMillis()) {
-            // Active trial, skip to dashboard
-            proceedToDashboard()
+            proceedToDashboard(targetPackage, targetAppName)
+            return
+        }
+
+        setContent {
+            PaymentContent(
+                targetPackage  = targetPackage,
+                targetAppName  = targetAppName,
+                onBack         = { finish() },
+                onSuccess      = { proceedToDashboard(targetPackage, targetAppName) }
+            )
         }
     }
 
-    private fun activateTrial() {
-        progressBar.visibility = View.VISIBLE
-        btnActivate.isEnabled = false
-        tvStatus.visibility = View.GONE
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val apiService = ApiClient.getApiService()
-                val deviceId = DeviceUtils.getDeviceId(this@PaymentScreen)
-                val wifiIp = DeviceUtils.getWifiIpAddress(this@PaymentScreen)
-
-                val request = ValidateRequest(
-                    key = "NOWORNEVER",
-                    deviceId = deviceId,
-                    wifiIp = wifiIp
-                )
-
-                val response = apiService.validateKey(request).execute()
-
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    btnActivate.isEnabled = true
-
-                    if (response.isSuccessful && response.body()?.success == true) {
-                        val body = response.body()!!
-                        // Save token
-                        body.token?.let { token ->
-                            SharedPrefs.setActivationToken(token)
-                            SharedPrefs.setTrial(true)
-                            SharedPrefs.setPaid(false)
-                            // Parse and store trial expiry so checkForTrialKey() works on next launch
-                            body.expiresAt?.let { expiresAtStr ->
-                                try {
-                                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
-                                    sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
-                                    val date = sdf.parse(expiresAtStr)
-                                    if (date != null) SharedPrefs.setTrialExpiry(date.time)
-                                } catch (e: Exception) {
-                                    Logger.e("Failed to parse trial expiry: $expiresAtStr", e)
-                                }
-                            }
-                            showActivationSuccess()
-                        }
-                    } else {
-                        val errorMsg = response.body()?.message ?: "Trial activation failed"
-                        showError(errorMsg)
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    btnActivate.isEnabled = true
-                    Logger.e("Error activating trial", e)
-                    showError("Network error: ${e.message}")
-                }
-            }
-        }
-    }
-
-    private fun activatePaid(key: String) {
-        progressBar.visibility = View.VISIBLE
-        btnActivate.isEnabled = false
-        tvStatus.visibility = View.GONE
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val apiService = ApiClient.getApiService()
-                val deviceId = DeviceUtils.getDeviceId(this@PaymentScreen)
-                val wifiIp = DeviceUtils.getWifiIpAddress(this@PaymentScreen)
-
-                val request = ValidateRequest(
-                    key = key,
-                    deviceId = deviceId,
-                    wifiIp = wifiIp
-                )
-
-                val response = apiService.validateKey(request).execute()
-
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    btnActivate.isEnabled = true
-
-                    if (response.isSuccessful && response.body()?.success == true) {
-                        val body = response.body()!!
-                        // Save token
-                        body.token?.let { token ->
-                            SharedPrefs.setActivationToken(token)
-                            SharedPrefs.setPaid(true)
-                            SharedPrefs.setTrial(false)
-                            showActivationSuccess()
-                        }
-                    } else {
-                        val errorMsg = response.body()?.message ?: "Invalid activation key"
-                        showError(errorMsg)
-                    }
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.GONE
-                    btnActivate.isEnabled = true
-                    Logger.e("Error activating key", e)
-                    showError("Network error: ${e.message}")
-                }
-            }
-        }
-    }
-
-    private fun showError(message: String) {
-        tvStatus.text = message
-        tvStatus.visibility = View.VISIBLE
-        tvStatus.setTextColor(ContextCompat.getColor(this, R.color.error_red))
-    }
-
-    private fun showActivationSuccess() {
-        // Show success message and navigate to dashboard
-        Toast.makeText(this, "Activation successful!", Toast.LENGTH_LONG).show()
-        proceedToDashboard()
-    }
-
-    private fun proceedToDashboard() {
+    private fun proceedToDashboard(pkg: String?, name: String?) {
         val intent = Intent(this, TabsScreen::class.java).apply {
-            putExtra("target_package", targetPackage)
-            putExtra("target_app_name", targetAppName)
+            putExtra("target_package", pkg)
+            putExtra("target_app_name", name)
             putExtra("from_payment", true)
         }
         startActivity(intent)
         finish()
+    }
+}
+
+@Composable
+private fun PaymentContent(
+    targetPackage: String?,
+    targetAppName: String?,
+    onBack: () -> Unit,
+    onSuccess: () -> Unit
+) {
+    val context  = LocalContext.current
+    val deviceId = remember { DeviceUtils.getFormattedDeviceId(context) }
+
+    var key      by remember { mutableStateOf("") }
+    var showKey  by remember { mutableStateOf(false) }
+    var loading  by remember { mutableStateOf(false) }
+    var errorMsg by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        SharedPrefs.init(context)
+        SharedPrefs.setDeviceId(DeviceUtils.getFormattedDeviceId(context))
+    }
+
+    fun copyDeviceId() {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("Device ID", deviceId))
+        Toast.makeText(context, "Device ID copied!", Toast.LENGTH_SHORT).show()
+    }
+
+    fun openBot() {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/facegateofficialbot")))
+    }
+
+    fun activate() {
+        if (key.trim().isEmpty()) { errorMsg = "Please enter an activation key"; return }
+        errorMsg = ""
+        loading = true
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val rawDeviceId = DeviceUtils.getDeviceId(context)
+                val wifiIp = DeviceUtils.getWifiIpAddress(context)
+                val request = ValidateRequest(key = key.trim(), deviceId = rawDeviceId, wifiIp = wifiIp)
+                val response = ApiClient.getApiService().validateKey(request).execute()
+
+                withContext(Dispatchers.Main) {
+                    loading = false
+                    if (response.isSuccessful && response.body()?.success == true) {
+                        val body = response.body()!!
+                        body.token?.let { token ->
+                            SharedPrefs.setActivationToken(token)
+                            val isTrial = key.trim().uppercase() == "NOWORNEVER"
+                            SharedPrefs.setTrial(isTrial)
+                            SharedPrefs.setPaid(!isTrial)
+                            if (isTrial) {
+                                body.expiresAt?.let { expiresAtStr ->
+                                    try {
+                                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                                        sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                                        val date = sdf.parse(expiresAtStr)
+                                        if (date != null) SharedPrefs.setTrialExpiry(date.time)
+                                    } catch (e: Exception) {
+                                        Logger.e("Failed to parse trial expiry: $expiresAtStr", e)
+                                    }
+                                }
+                            }
+                            Toast.makeText(context, "Activation successful!", Toast.LENGTH_LONG).show()
+                            onSuccess()
+                        }
+                    } else {
+                        errorMsg = response.body()?.message ?: "Invalid activation key"
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    loading = false
+                    Logger.e("Error activating key", e)
+                    errorMsg = "Network error: ${e.message}"
+                }
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(BgDark)
+            .systemBarsPadding()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Spacer(Modifier.height(16.dp))
+
+            // Back row
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x1AFFFFFF))
+                        .clickable { onBack() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("‹", color = TextMid, fontSize = 20.sp)
+                }
+                Text("Activation", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Selected App chip
+            if (!targetAppName.isNullOrEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Surface)
+                        .border(1.dp, Border, RoundedCornerShape(16.dp))
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Violet),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(targetAppName.take(2).uppercase(), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(targetAppName, color = Color.White, fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!targetPackage.isNullOrEmpty()) {
+                            Text(targetPackage, color = TextSec, fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+
+            // Device ID card
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Surface)
+                    .border(1.dp, Border, RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("YOUR DEVICE ID", color = TextSec, fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace, letterSpacing = 2.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Text(deviceId, color = Violet, fontSize = 14.sp,
+                            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0x1A6C63FF))
+                            .clickable { copyDeviceId() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Text("Copy", color = Violet, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            // How to get a key
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x0FFACC15))
+                    .border(1.dp, Color(0x33FACC15), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("HOW TO GET A KEY", color = YellWarn, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    listOf(
+                        "Copy your Device ID above",
+                        "Open the Telegram bot below",
+                        "Send your Device ID to receive your key"
+                    ).forEachIndexed { i, s ->
+                        Text("${i + 1}. $s", color = YellWarn.copy(alpha = 0.6f), fontSize = 10.sp)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text("Trial key: NOWORNEVER", color = TextSec, fontSize = 9.sp)
+                }
+            }
+
+            // Open Bot button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x1A2CA5E0))
+                    .border(1.dp, Color(0x332CA5E0), RoundedCornerShape(16.dp))
+                    .clickable { openBot() }
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Open Telegram Bot ✈", color = Color(0xFF2CA5E0), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+
+            // Key input
+            val hasError = errorMsg.isNotEmpty()
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Color(0x1AFFFFFF))
+                    .border(1.5.dp, if (hasError) RedErr.copy(0.3f) else Color(0x26FFFFFF), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("🔑", fontSize = 14.sp)
+                BasicTextField(
+                    value = key,
+                    onValueChange = { key = it; if (errorMsg.isNotEmpty()) errorMsg = "" },
+                    modifier = Modifier.weight(1f).padding(vertical = 14.dp),
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        color = Color.White, fontSize = 14.sp, fontFamily = FontFamily.Monospace),
+                    singleLine = true,
+                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    decorationBox = { inner ->
+                        if (key.isEmpty()) Text("Enter activation key...", color = TextSec, fontSize = 14.sp)
+                        inner()
+                    },
+                    cursorBrush = SolidColor(Violet)
+                )
+                Box(modifier = Modifier.clickable { showKey = !showKey }) {
+                    Text(if (showKey) "🙈" else "👁", fontSize = 16.sp)
+                }
+            }
+
+            // Error
+            AnimatedVisibility(visible = hasError) {
+                Text(errorMsg, color = RedErr, fontSize = 12.sp)
+            }
+
+            // Activate button
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(
+                        if (key.trim().isNotEmpty())
+                            Brush.linearGradient(listOf(Violet, Pink))
+                        else
+                            Brush.linearGradient(listOf(Color(0x1AFFFFFF), Color(0x1AFFFFFF)))
+                    )
+                    .clickable(enabled = !loading) { activate() },
+                contentAlignment = Alignment.Center
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                } else {
+                    Text("Activate", color = if (key.trim().isNotEmpty()) Color.White else TextSec,
+                        fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+        }
     }
 }
