@@ -43,7 +43,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="FaceGate - Virtual Camera Module" />
+            android:value="FaceGate - GStreamer Virtual Camera" />
         <meta-data
             android:name="xposedminversion"
             android:value="89" />
@@ -84,9 +84,19 @@
 
         <service
             android:name=".services.InjectionService"
-            android:exported="false"
+            android:exported="true"
             android:foregroundServiceType="mediaPlayback|camera|dataSync"
-            android:enabled="true" />
+            android:enabled="true">
+            <!--
+                Explicit action so Xposed hooks in hooked-app processes can bind via:
+                    Intent("com.itsme.amkush.action.SURFACE_INJECTOR").setPackage("com.itsme.amkush")
+                The setPackage() restriction means only code that already knows the
+                module package name can bind — no open exposure to arbitrary apps.
+            -->
+            <intent-filter>
+                <action android:name="com.itsme.amkush.action.SURFACE_INJECTOR" />
+            </intent-filter>
+        </service>
 
         <!-- ==================== IPC CONFIG PROVIDER ==================== -->
 

@@ -1,303 +1,442 @@
 package com.itsme.amkush.hooks
 
-import android.graphics.ImageFormat
-import android.hardware.camera2.params.OutputConfiguration
-import android.hardware.camera2.params.SessionConfiguration
-import android.media.Image
-import android.media.ImageReader
-import android.view.Surface
+import android.hardware.camera2.CameraDevice
+import android.os.Handler
+import android.os.Looper
 import com.itsme.amkush.AppState
-import com.itsme.amkush.CameraState
-import com.itsme.amkush.decoder.FrameUtils
 import com.itsme.amkush.utils.Logger
 import de.robv.android.xposed.XC_MethodHook
 import de.robv.android.xposed.XposedHelpers
 import de.robv.android.xposed.callbacks.XC_LoadPackage
-import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.min
 
 /**
- * Camera2 / ImageReader frame injection.
+ * Camera2Hooks — GStreamer/physical-camera-block architecture
  *
- * Strategy:
- *  1. Hook ImageReader.newInstance() → record width/height/format per reader instance.
- *  2. Hook ImageReader.acquireLatestImage() and acquireNextImage() → after the real Image
- *     is returned to the app, write our scaled fake frame into its YUV/JPEG plane buffers.
- *  3. Hook createCaptureSession variants → track all output surfaces for per-surface
- *     resolution mapping.
- *  4. Hook CaptureRequest.Builder.addTarget() → track which surfaces are active.
+ * Every Camera2 (and by extension CameraX) interaction is fully intercepted:
  *
- * Why acquireLatestImage/acquireNextImage hooking works:
- *  On most Android camera HALs, the Image plane ByteBuffers are direct NIO buffers backed
- *  by gralloc-mapped memory. They are writable (the read-only flag is not set by the HAL
- *  on preview/analysis streams). We overwrite in-place before the app reads the pixels.
- *  A try/catch around every write ensures we degrade gracefully on strict HALs.
+ *   Step 1  CameraManager.openCamera()
+ *           → Block the real HAL camera open (set result = null on void method)
+ *           → Allocate a fake CameraDeviceImpl via Unsafe (no constructor called)
+ *           → Fire StateCallback.onOpened(fakeDevice) asynchronously
+ *
+ *   Step 2  CameraDeviceImpl.createCaptureSession() variants
+ *           → Intercepted on fake devices only (membership check in fakeCamera2Devices)
+ *           → Extract the List<Surface> and their resolutions
+ *           → Route surfaces to module process (InjectionService / GStreamer) via Binder
+ *           → Allocate a fake CameraCaptureSessionImpl via Unsafe
+ *           → Fire StateCallback.onConfigured(fakeSession) asynchronously
+ *
+ *   Step 3  CameraCaptureSession.setRepeatingRequest() / capture()
+ *           → Fake sessions only → start 30-FPS onCaptureCompleted heartbeat
+ *
+ *   Step 4  close() on either fake object → cleanup + stop heartbeat
+ *
+ * Result: the physical camera HAL never opens (light stays off, no buffer
+ * collision), while the target app believes everything is normal.
  */
 object Camera2Hooks {
 
-    // Maps ImageReader instance → its configured resolution + format
-    private val readerMeta = ConcurrentHashMap<Any, ReaderMeta>()
-    // Maps Surface → its expected resolution (from OutputConfiguration or session list)
-    private val surfaceRes  = ConcurrentHashMap<Int, SurfaceMeta>()   // key = Surface.hashCode()
+    private const val TAG = "Camera2Hooks"
+    private val uiHandler = Handler(Looper.getMainLooper())
 
-    private data class ReaderMeta(val width: Int, val height: Int, val format: Int)
-    private data class SurfaceMeta(val width: Int, val height: Int)
-
-    private var lastFrameNs = 0L
-
-    // ─────────────────────────────────────────────────────────────────────
     fun hookAll(lpparam: XC_LoadPackage.LoadPackageParam) {
         try {
-            hookImageReaderNewInstance(lpparam)
-            hookAcquireImage(lpparam)
-            hookCreateCaptureSession(lpparam)
-            hookAddTarget(lpparam)
-            hookDisconnect(lpparam)
-            Logger.d("Camera2 hooks installed (multi-surface, per-reader injection)")
+            hookOpenCamera(lpparam)
+            hookCameraDeviceMethods(lpparam)
+            hookCaptureSessionMethods(lpparam)
+            Logger.d("$TAG installed")
         } catch (e: Throwable) {
-            Logger.e("Camera2 hooks failed", e)
+            Logger.e("$TAG hookAll failed", e)
         }
     }
 
-    // ── 1. Track ImageReader dimensions per instance ──────────────────────
-    private fun hookImageReaderNewInstance(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val cls = XposedHelpers.findClass("android.media.ImageReader", lpparam.classLoader)
+    // ── Step 1: Block CameraManager.openCamera() ─────────────────────────────
 
-        // newInstance(width, height, format, maxImages)
-        XposedHelpers.findAndHookMethod(cls, "newInstance",
-            Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
-            Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
-            object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    val w = param.args[0] as Int; val h = param.args[1] as Int
-                    val fmt = param.args[2] as Int
-                    param.result?.let { readerMeta[it] = ReaderMeta(w, h, fmt) }
-                    // Also update the shared CameraState for Camera1-style callers
-                    CameraState.currentWidth  = w
-                    CameraState.currentHeight = h
-                    CameraState.currentFormat = fmt
-                    Logger.d("Camera2 ImageReader: ${w}x${h} fmt=$fmt")
-                }
-            }
+    private fun hookOpenCamera(lpparam: XC_LoadPackage.LoadPackageParam) {
+        val managerClass = XposedHelpers.findClass(
+            "android.hardware.camera2.CameraManager", lpparam.classLoader
         )
 
-        // newInstance(width, height, format, maxImages, usage) — always available (minSdk 29 = Q)
-        try {
-            XposedHelpers.findAndHookMethod(cls, "newInstance",
-                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
-                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
-                Long::class.javaPrimitiveType,
-                object : XC_MethodHook() {
-                    override fun afterHookedMethod(param: MethodHookParam) {
-                        val w = param.args[0] as Int; val h = param.args[1] as Int
-                        val fmt = param.args[2] as Int
-                        param.result?.let { readerMeta[it] = ReaderMeta(w, h, fmt) }
-                        CameraState.currentWidth = w; CameraState.currentHeight = h
-                        CameraState.currentFormat = fmt
-                    }
-                }
-            )
-        } catch (_: Throwable) {}
-    }
-
-    // ── 2. Inject fake frame into Image planes on every acquire ──────────
-    private fun hookAcquireImage(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val cls = XposedHelpers.findClass("android.media.ImageReader", lpparam.classLoader)
-
-        for (method in listOf("acquireLatestImage", "acquireNextImage")) {
-            XposedHelpers.findAndHookMethod(cls, method, object : XC_MethodHook() {
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    if (!AppState.isHookingActive) return
-                    val image = param.result as? Image ?: return
-                    // Determine resolution: prefer per-reader meta, fall back to global state
-                    val meta  = readerMeta[param.thisObject]
-                    val dstW  = meta?.width  ?: image.width.takeIf { it > 0 }  ?: CameraState.currentWidth.takeIf  { it > 0 } ?: 640
-                    val dstH  = meta?.height ?: image.height.takeIf { it > 0 } ?: CameraState.currentHeight.takeIf { it > 0 } ?: 480
-                    val fmt   = meta?.format ?: image.format
-                    injectIntoImage(image, dstW, dstH, fmt)
-                    updateFps()
-                }
-            })
-        }
-    }
-
-    /**
-     * Write fake NV21/YUV/JPEG data directly into an Image's plane ByteBuffers.
-     *
-     * Camera2 Image planes on preview/analysis streams are usually writable gralloc
-     * buffers.  We guard every write in try/catch so a read-only buffer on a strict
-     * HAL degrades silently without crashing the target app.
-     */
-    private fun injectIntoImage(image: Image, dstW: Int, dstH: Int, format: Int) {
-        val frame = AppState.currentFrame
-        if (frame.isEmpty) return
-        try {
-            when (format) {
-                ImageFormat.YUV_420_888,
-                ImageFormat.NV21,
-                ImageFormat.NV16 -> {
-                    val nv21   = FrameUtils.scaleNv21(frame.data, frame.width, frame.height, dstW, dstH)
-                    val planes = image.planes
-                    if (planes.isEmpty()) return
-
-                    // Y plane (full resolution)
-                    writePlane(planes[0].buffer, nv21, 0, dstW * dstH)
-
-                    if (planes.size >= 3) {
-                        val uvBase = dstW * dstH
-                        val halfW  = dstW / 2
-                        val halfH  = dstH / 2
-
-                        // U plane (or Cb) — offset 1 in NV21's UV block
-                        writePlane(planes[1].buffer, nv21, uvBase + 1, halfW * halfH)
-
-                        // V plane (or Cr) — offset 0 in NV21's UV block
-                        writePlane(planes[2].buffer, nv21, uvBase, halfW * halfH)
-                    } else if (planes.size == 2) {
-                        // Some devices return only Y + UV interleaved
-                        val uvBase = dstW * dstH
-                        writePlane(planes[1].buffer, nv21, uvBase, dstW * dstH / 2)
-                    }
-                }
-
-                ImageFormat.JPEG -> {
-                    val jpeg = getFakeJpeg() ?: return
-                    val planes = image.planes
-                    if (planes.isNotEmpty()) writePlane(planes[0].buffer, jpeg, 0, jpeg.size)
-                }
-
-                else -> {
-                    // Best-effort: treat as raw byte stream, write NV21 and hope for the best
-                    val nv21 = FrameUtils.scaleNv21(frame.data, frame.width, frame.height, dstW, dstH)
-                    image.planes.firstOrNull()?.buffer?.let { writePlane(it, nv21, 0, nv21.size) }
-                }
-            }
-        } catch (e: Throwable) {
-            Logger.d("Camera2 injectIntoImage error: ${e.message}")
-        }
-    }
-
-    /** Safely write [src] bytes (starting at [srcOffset], up to [maxLen]) into [buf]. */
-    private fun writePlane(buf: java.nio.ByteBuffer, src: ByteArray, srcOffset: Int, maxLen: Int) {
-        if (buf.isReadOnly || srcOffset >= src.size) return
-        buf.clear()
-        val copyLen = min(min(maxLen, buf.remaining()), src.size - srcOffset)
-        if (copyLen > 0) buf.put(src, srcOffset, copyLen)
-    }
-
-    // ── 3. Track output surfaces and their resolutions from createCaptureSession ──
-    private fun hookCreateCaptureSession(lpparam: XC_LoadPackage.LoadPackageParam) {
-        val cameraDeviceClass = XposedHelpers.findClass("android.hardware.camera2.CameraDevice", lpparam.classLoader)
-
-        // Modern: SessionConfiguration (API 28+)
-        try {
-            XposedHelpers.findAndHookMethod(cameraDeviceClass, "createCaptureSession",
-                XposedHelpers.findClass("android.hardware.camera2.params.SessionConfiguration", lpparam.classLoader),
+        // openCamera(String, StateCallback, Handler)
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                managerClass, "openCamera",
+                String::class.java,
+                CameraDevice.StateCallback::class.java,
+                Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val config = param.args[0] as? SessionConfiguration ?: return
-                        config.outputConfigurations.forEach { oc -> registerOutputConfig(oc) }
+                        if (!AppState.isHookingActive) return
+                        blockOpenCamera(
+                            param,
+                            cameraId    = param.args[0] as? String ?: "0",
+                            callback    = param.args[1],
+                            handler     = param.args[2],
+                            classLoader = lpparam.classLoader
+                        )
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // Legacy: List<Surface> — CameraCaptureSession.StateCallback
-        try {
-            XposedHelpers.findAndHookMethod(cameraDeviceClass, "createCaptureSession",
+        // openCamera(String, Executor, StateCallback) — API 29+ executor overload
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                managerClass, "openCamera",
+                String::class.java,
+                java.util.concurrent.Executor::class.java,
+                CameraDevice.StateCallback::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (!AppState.isHookingActive) return
+                        blockOpenCamera(
+                            param,
+                            cameraId    = param.args[0] as? String ?: "0",
+                            callback    = param.args[2],
+                            handler     = null,
+                            classLoader = lpparam.classLoader
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    private fun blockOpenCamera(
+        param: XC_MethodHook.MethodHookParam,
+        cameraId: String,
+        callback: Any?,
+        handler: Any?,
+        classLoader: ClassLoader
+    ) {
+        Logger.d("$TAG openCamera($cameraId) → blocking physical camera")
+        val fakeDevice = FakeCameraObjects.allocateFakeCameraDevice(classLoader, cameraId)
+            ?: run { Logger.e("$TAG could not allocate fake CameraDevice — pass-through"); return }
+
+        FakeCameraObjects.deviceCallbacks[fakeDevice] = callback
+
+        // Block the real openCamera — setting result on a void method skips the original
+        param.result = null
+
+        // Fire onOpened after the call stack unwinds
+        uiHandler.postDelayed({
+            FakeCameraObjects.fireOnOpened(fakeDevice, callback, handler)
+        }, 40)
+    }
+
+    // ── Step 2 & 4: Hook CameraDeviceImpl methods ────────────────────────────
+
+    private fun hookCameraDeviceMethods(lpparam: XC_LoadPackage.LoadPackageParam) {
+        val implClass = tryFindClass(
+            "android.hardware.camera2.impl.CameraDeviceImpl", lpparam.classLoader
+        ) ?: return
+
+        // getId() → return the stored camera id string
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "getId",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = FakeCameraObjects.deviceIds[param.thisObject] ?: "0"
+                    }
+                }
+            )
+        }
+
+        // isClosed() → fake devices are never closed until we say so
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "isClosed",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = false
+                    }
+                }
+            )
+        }
+
+        // createCaptureSession(List<Surface>, StateCallback, Handler)
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                implClass, "createCaptureSession",
                 List::class.java,
-                XposedHelpers.findClass("android.hardware.camera2.CameraCaptureSession\$StateCallback", lpparam.classLoader),
-                android.os.Handler::class.java,
+                android.hardware.camera2.CameraCaptureSession.StateCallback::class.java,
+                Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        (param.args[0] as? List<*>)?.forEach { s -> (s as? Surface)?.let { registerSurface(it) } }
+                        val dev = param.thisObject
+                        if (dev !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = null
+                        val surfaces = (param.args[0] as? List<*>)?.filterNotNull() ?: return
+                        handleSessionCreation(dev, surfaces, param.args[1], param.args[2], lpparam.classLoader)
                     }
                 }
             )
-        } catch (_: Throwable) {}
+        }
 
-        // createCaptureSessionByOutputConfigurations — always available (minSdk 29 > N=24)
-        try {
-            XposedHelpers.findAndHookMethod(cameraDeviceClass, "createCaptureSessionByOutputConfigurations",
+        // createCaptureSessionByOutputConfigurations(List<OutputConfig>, StateCallback, Handler)
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                implClass, "createCaptureSessionByOutputConfigurations",
                 List::class.java,
-                XposedHelpers.findClass("android.hardware.camera2.CameraCaptureSession\$StateCallback", lpparam.classLoader),
-                android.os.Handler::class.java,
+                android.hardware.camera2.CameraCaptureSession.StateCallback::class.java,
+                Handler::class.java,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        (param.args[0] as? List<*>)?.filterIsInstance<OutputConfiguration>()
-                            ?.forEach { registerOutputConfig(it) }
+                        val dev = param.thisObject
+                        if (dev !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = null
+                        val surfaces = extractSurfacesFromOutputConfigs(param.args[0] as? List<*>)
+                        handleSessionCreation(dev, surfaces, param.args[1], param.args[2], lpparam.classLoader)
                     }
                 }
             )
-        } catch (_: Throwable) {}
-    }
+        }
 
-    private fun registerOutputConfig(oc: OutputConfiguration) {
-        try {
-            val surface = oc.surface ?: return
-            registerSurface(surface)
-        } catch (_: Throwable) {}
-    }
-
-    private fun registerSurface(surface: Surface) {
-        try {
-            // Read width/height from the Surface via reflection (works on most Android versions)
-            val w = XposedHelpers.callMethod(surface, "getWidth",  *emptyArray<Any>()) as? Int ?: return
-            val h = XposedHelpers.callMethod(surface, "getHeight", *emptyArray<Any>()) as? Int ?: return
-            if (w > 0 && h > 0) {
-                surfaceRes[System.identityHashCode(surface)] = SurfaceMeta(w, h)
-                Logger.d("Camera2 surface registered: ${w}x${h}")
-            }
-        } catch (_: Throwable) {}
-    }
-
-    // ── 4. Track CaptureRequest targets (addTarget) ───────────────────────
-    private fun hookAddTarget(lpparam: XC_LoadPackage.LoadPackageParam) {
-        try {
-            val builderClass = XposedHelpers.findClass(
-                "android.hardware.camera2.CaptureRequest\$Builder", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(builderClass, "addTarget", Surface::class.java,
+        // createCaptureSession(SessionConfiguration) — API 28+
+        safeHook {
+            val sessionConfigClass = tryFindClass(
+                "android.hardware.camera2.params.SessionConfiguration", lpparam.classLoader
+            ) ?: return@safeHook
+            XposedHelpers.findAndHookMethod(
+                implClass, "createCaptureSession",
+                sessionConfigClass,
                 object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        (param.args[0] as? Surface)?.let { registerSurface(it) }
+                        val dev = param.thisObject
+                        if (dev !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = null
+                        val sessionConfig = param.args[0] ?: return
+                        val outputConfigs = safeCall {
+                            sessionConfig.javaClass.getMethod("getOutputConfigurations")
+                                .invoke(sessionConfig) as? List<*>
+                        }
+                        val surfaces = extractSurfacesFromOutputConfigs(outputConfigs)
+                        val stateCallback = safeCall {
+                            sessionConfig.javaClass.getMethod("getStateCallback").invoke(sessionConfig)
+                        }
+                        handleSessionCreation(dev, surfaces, stateCallback, null, lpparam.classLoader)
                     }
                 }
             )
-        } catch (_: Throwable) {}
-    }
+        }
 
-    // ── 5. Clean up on camera disconnect ──────────────────────────────────
-    private fun hookDisconnect(lpparam: XC_LoadPackage.LoadPackageParam) {
-        try {
-            val cls = XposedHelpers.findClass("android.hardware.camera2.CameraDevice", lpparam.classLoader)
-            XposedHelpers.findAndHookMethod(cls, "close", object : XC_MethodHook() {
-                override fun beforeHookedMethod(param: MethodHookParam) {
-                    readerMeta.clear(); surfaceRes.clear()
-                    CameraState.reset()
-                    Logger.d("Camera2 closed — state reset")
+        // createCaptureRequest(int templateType) → stub out a fake Builder
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "createCaptureRequest",
+                Int::class.javaPrimitiveType,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = allocateFakeCaptureRequestBuilder(lpparam.classLoader)
+                    }
                 }
-            })
-        } catch (_: Throwable) {}
+            )
+        }
+
+        // close() → cleanup the fake device + tell GStreamer to stop this session
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "close",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val dev = param.thisObject
+                        if (dev !in FakeCameraObjects.fakeCamera2Devices) return
+                        param.result = null
+                        GStreamerSurfaceRouter.stopSession(dev)
+                        FakeCameraObjects.cleanupDevice(dev)
+                        Logger.d("$TAG fake CameraDevice closed")
+                    }
+                }
+            )
+        }
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-    private fun updateFps() {
-        val now = System.nanoTime()
-        if (lastFrameNs > 0) {
-            val deltaMs = (now - lastFrameNs) / 1_000_000L
-            if (deltaMs in 1..5000) CameraState.requestedFps = (1000L / deltaMs).toInt().coerceIn(1, 120)
+    // ── Step 3 & 4: Hook CameraCaptureSessionImpl methods ────────────────────
+
+    private fun hookCaptureSessionMethods(lpparam: XC_LoadPackage.LoadPackageParam) {
+        val implClass = tryFindClass(
+            "android.hardware.camera2.impl.CameraCaptureSessionImpl", lpparam.classLoader
+        ) ?: return
+
+        val captureCallbackClass =
+            android.hardware.camera2.CameraCaptureSession.CaptureCallback::class.java
+        val captureRequestClass = android.hardware.camera2.CaptureRequest::class.java
+
+        // setRepeatingRequest → start 30-fps heartbeat
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                implClass, "setRepeatingRequest",
+                captureRequestClass, captureCallbackClass, Handler::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = 0  // fake sequence id
+                        FakeCameraObjects.startCaptureHeartbeat(param.thisObject, param.args[1], param.args[0])
+                    }
+                }
+            )
         }
-        lastFrameNs = now
+
+        // capture → single-shot callback (also start heartbeat for apps that use capture loops)
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                implClass, "capture",
+                captureRequestClass, captureCallbackClass, Handler::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = 1
+                        FakeCameraObjects.startCaptureHeartbeat(param.thisObject, param.args[1], param.args[0])
+                    }
+                }
+            )
+        }
+
+        // setRepeatingBurst / captureBurst — same treatment
+        safeHook {
+            XposedHelpers.findAndHookMethod(
+                implClass, "setRepeatingBurst",
+                List::class.java, captureCallbackClass, Handler::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = 0
+                        val firstRequest = (param.args[0] as? List<*>)?.firstOrNull()
+                        FakeCameraObjects.startCaptureHeartbeat(param.thisObject, param.args[1], firstRequest)
+                    }
+                }
+            )
+        }
+
+        // stopRepeating → stop heartbeat
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "stopRepeating",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = null
+                        FakeCameraObjects.stopCaptureHeartbeat(param.thisObject)
+                    }
+                }
+            )
+        }
+
+        // close() → cleanup
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "close",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val session = param.thisObject
+                        if (session !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = null
+                        FakeCameraObjects.stopCaptureHeartbeat(session)
+                        FakeCameraObjects.fakeCaptureSessionsMap.remove(session)
+                        Logger.d("$TAG fake CaptureSession closed")
+                    }
+                }
+            )
+        }
+
+        // getDevice() → return owning fake CameraDevice
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "getDevice",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        val meta = FakeCameraObjects.fakeCaptureSessionsMap[param.thisObject] ?: return
+                        param.result = meta.cameraDevice
+                    }
+                }
+            )
+        }
+
+        // isReprocessable() → false
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "isReprocessable",
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = false
+                    }
+                }
+            )
+        }
+
+        // prepare(Surface) → no-op on fake sessions
+        safeHook {
+            XposedHelpers.findAndHookMethod(implClass, "prepare",
+                android.view.Surface::class.java,
+                object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.thisObject !in FakeCameraObjects.fakeCaptureSessionsMap) return
+                        param.result = null
+                    }
+                }
+            )
+        }
     }
 
-    private fun getFakeJpeg(): ByteArray? = try {
-        val frame = AppState.currentFrame
-        if (frame.isEmpty) null
-        else {
-            val yuvImg = android.graphics.YuvImage(frame.data, android.graphics.ImageFormat.NV21, frame.width, frame.height, null)
-            val out = java.io.ByteArrayOutputStream()
-            yuvImg.compressToJpeg(android.graphics.Rect(0, 0, frame.width, frame.height), 90, out)
-            out.toByteArray()
-        }
-    } catch (_: Throwable) { null }
+    // ── Session construction helper ───────────────────────────────────────────
+
+    private fun handleSessionCreation(
+        dev: Any,
+        surfaces: List<Any>,
+        stateCallback: Any?,
+        handler: Any?,
+        classLoader: ClassLoader
+    ) {
+        val sessionId = "${System.identityHashCode(dev)}_${System.currentTimeMillis()}"
+        Logger.d("$TAG handleSessionCreation: ${surfaces.size} surfaces session=$sessionId")
+
+        val widths  = IntArray(surfaces.size) { i -> readSurfaceDim(surfaces[i], "getWidth",  640) }
+        val heights = IntArray(surfaces.size) { i -> readSurfaceDim(surfaces[i], "getHeight", 480) }
+        val formats = IntArray(surfaces.size) { android.graphics.ImageFormat.YUV_420_888 }
+
+        // Deliver surfaces to InjectionService → GStreamer in the module process
+        GStreamerSurfaceRouter.routeSurfaces(dev, surfaces, widths, heights, formats, sessionId)
+
+        // Build the fake session proxy
+        val fakeSession = FakeCameraObjects.allocateFakeCaptureSession(
+            classLoader, dev, surfaces, stateCallback, null, handler, sessionId
+        ) ?: return
+
+        // Fire onConfigured after call-stack unwind
+        uiHandler.postDelayed({ FakeCameraObjects.fireOnConfigured(fakeSession) }, 60)
+    }
+
+    // ── Allocation helpers ────────────────────────────────────────────────────
+
+    private fun allocateFakeCaptureRequestBuilder(classLoader: ClassLoader): Any? = try {
+        val cls = XposedHelpers.findClass(
+            "android.hardware.camera2.CaptureRequest\$Builder", classLoader
+        )
+        val f = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe")
+        f.isAccessible = true
+        val unsafe = f.get(null)!!
+        unsafe.javaClass.getMethod("allocateInstance", Class::class.java).invoke(unsafe, cls)
+    } catch (e: Throwable) {
+        Logger.e("$TAG allocateFakeBuilder: ${e.message}"); null
+    }
+
+    private fun extractSurfacesFromOutputConfigs(configs: List<*>?): List<Any> =
+        configs?.mapNotNull { oc ->
+            safeCall { oc?.javaClass?.getMethod("getSurface")?.invoke(oc) }
+        } ?: emptyList()
+
+    private fun readSurfaceDim(surface: Any, method: String, default: Int): Int = try {
+        surface.javaClass.getMethod(method).invoke(surface) as? Int ?: default
+    } catch (_: Throwable) { default }
+
+    // ── Utilities ─────────────────────────────────────────────────────────────
+
+    private fun safeHook(block: () -> Unit) {
+        try { block() } catch (e: Throwable) { Logger.d("$TAG hook skipped: ${e.message}") }
+    }
+
+    private fun <T> safeCall(block: () -> T?): T? = try { block() } catch (_: Throwable) { null }
+
+    private fun tryFindClass(name: String, classLoader: ClassLoader): Class<*>? = try {
+        XposedHelpers.findClass(name, classLoader)
+    } catch (e: Throwable) {
+        Logger.e("$TAG class not found: $name"); null
+    }
 }

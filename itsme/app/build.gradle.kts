@@ -1,29 +1,73 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// ── Read local.properties (for gstreamer.dir) ─────────────────────────────────
+val localProps = Properties().also { props ->
+    rootProject.file("local.properties").takeIf { it.exists() }
+        ?.inputStream()?.use { props.load(it) }
+}
+val gstreamerDir: String? = localProps.getProperty("gstreamer.dir")
+    ?: System.getenv("GSTREAMER_ROOT")
+    ?: System.getenv("GSTREAMER_ROOT_ANDROID")
+
 android {
-    namespace = "com.itsme.amkush"
+    namespace  = "com.itsme.amkush"
     compileSdk = 35
 
     defaultConfig {
         applicationId = "com.itsme.amkush"
-        minSdk = 29
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
+        minSdk        = 29
+        targetSdk     = 35
+        versionCode   = 2
+        versionName   = "2.0"
+
+        // Only build for ABIs that have GStreamer Android SDK packages
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+        }
+
+        // Pass GSTREAMER_ROOT into CMake so CMakeLists.txt can locate the SDK
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf("-std=c++17", "-frtti", "-fexceptions")
+                if (!gstreamerDir.isNullOrEmpty()) {
+                    arguments("-DGSTREAMER_ROOT=$gstreamerDir")
+                } else {
+                    // Warn at configuration time — build will still succeed if the
+                    // developer has set GSTREAMER_ROOT in their environment.
+                    println("WARNING: gstreamer.dir not set in local.properties.")
+                    println("         Set it to the path of the GStreamer Android Universal SDK.")
+                    println("         Download: https://gstreamer.freedesktop.org/data/pkg/android/")
+                }
+            }
+        }
+    }
+
+    // ── NDK / CMake build ─────────────────────────────────────────────────────
+    externalNativeBuild {
+        cmake {
+            path    = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1+"
+        }
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = true
+            isMinifyEnabled   = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
-        debug { isMinifyEnabled = false }
+        debug {
+            isMinifyEnabled = false
+        }
     }
 
     compileOptions {
@@ -32,8 +76,9 @@ android {
     }
 
     buildFeatures {
-        compose = true
+        compose     = true
         buildConfig = true
+        aidl        = true   // enable AIDL code generation for ISurfaceInjector
     }
 }
 
@@ -76,10 +121,10 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
 
-    // FFmpeg Kit — replaces libVLC for stream decoding and preview playback.
-    // Handles RTSP, HLS, RTMP, SRT, UDP, HTTP(S), and virtually all other
-    // protocols via bundled FFmpeg native libs in the module's own process.
-    // "full" variant includes all codecs (H.264, H.265, VP8/9, AV1, AAC, etc.)
+    // FFmpeg Kit — retained for the StreamPreviewDialog (module's own UI process).
+    // The GStreamer JNI lib handles stream decoding in the injection pipeline.
+    // "full" variant includes all codecs; native libs are loaded only in the
+    // module's own process (never in the hooked target-app process).
     implementation("com.arthenica:ffmpeg-kit-full:6.0-2")
 
     implementation("androidx.camera:camera-core:1.4.2")

@@ -1,103 +1,51 @@
 package com.itsme.amkush
 
-  import com.itsme.amkush.decoder.FfmpegStreamer
-  import com.itsme.amkush.ipc.RemoteConfig
-  import com.itsme.amkush.utils.Logger
+import com.itsme.amkush.ipc.RemoteConfig
+import com.itsme.amkush.utils.Logger
 
-  /**
-   * Decides which source to decode inside the hooked target-app process,
-   * then drives [FfmpegStreamer].  Called from:
-   *   - MainHook.hookApplication — immediately after isHookingActive = true
-   *   - Camera hook first-frame path — handles apps already open at inject time
-   *   - ConfigUpdateReceiver — for live URL changes without restarting the target app
-   */
-  object DecoderLauncher {
+/**
+ * DecoderLauncher — GStreamer architecture stub
+ *
+ * In the GStreamer architecture the stream decoder runs entirely inside the
+ * MODULE PROCESS (InjectionService + GStreamerPipeline) — NOT inside the
+ * hooked target-app process.
+ *
+ * This object is kept for API-compatibility only.  Call sites in MainHook
+ * and the hook files no longer call ensureLaunched(); those paths now work
+ * through GStreamerSurfaceRouter → ISurfaceInjector Binder → InjectionService.
+ *
+ * The InjectionService starts the GStreamer pipeline automatically when:
+ *   a) It receives the stream URL via onStartCommand (InjectionService.start())
+ *   b) It receives the first set of surfaces via ISurfaceInjector.registerSurfaces()
+ *
+ * Nothing here reaches FfmpegStreamer anymore because FfmpegStreamer running
+ * inside a foreign app process caused UnsatisfiedLinkError when GStreamer /
+ * FFmpeg Kit native libs are not present in the target app's lib directory.
+ */
+object DecoderLauncher {
 
-      @Volatile private var launched = false
+    /**
+     * No-op in the GStreamer architecture.
+     * GStreamer is started by InjectionService in the module process.
+     */
+    fun ensureLaunched() {
+        Logger.d("DecoderLauncher.ensureLaunched() — GStreamer runs in module process, no action needed")
+    }
 
-      /**
-       * Idempotent — safe to call on every camera frame.
-       * Reads RemoteConfig once, then never again until [reset] or [stop].
-       */
-      fun ensureLaunched() {
-          // If the decoder was launched but has since stopped on its own (e.g. exhausted
-          // all reconnect retries), clear the flag so we can restart it.
-          if (launched && !FfmpegStreamer.isRunning()) {
-              launched = false
-              Logger.d("DecoderLauncher: decoder stopped on its own — will relaunch")
-          }
-          if (launched) return
-          val ctx = AppState.context ?: return
-          synchronized(this) {
-              if (launched) return
+    /**
+     * No-op in the GStreamer architecture.
+     * URL changes are handled by broadcasting to InjectionService which restarts
+     * the GStreamer pipeline and re-registers all surfaces.
+     */
+    fun restart(streamUrl: String?, mediaUri: String?) {
+        Logger.d("DecoderLauncher.restart($streamUrl) — signal handled by InjectionService")
+    }
 
-              if (!RemoteConfig.isInjectionActive(ctx)) {
-                  Logger.d("DecoderLauncher: injection not active yet")
-                  return
-              }
+    /** No-op — cleanup is handled by InjectionService.onDestroy(). */
+    fun stop() {
+        Logger.d("DecoderLauncher.stop() — no-op in GStreamer architecture")
+    }
 
-              val mediaUri  = RemoteConfig.getMediaUri(ctx)
-              val streamUrl = RemoteConfig.getStreamUrl(ctx)
-
-              when {
-                  !mediaUri.isNullOrEmpty() -> {
-                      Logger.d("DecoderLauncher: starting for local media: $mediaUri")
-                      FfmpegStreamer.startMedia(mediaUri)
-                      launched = true
-                  }
-                  !streamUrl.isNullOrEmpty() -> {
-                      Logger.d("DecoderLauncher: starting for stream: $streamUrl")
-                      FfmpegStreamer.startStream(streamUrl)
-                      launched = true
-                  }
-                  else -> Logger.d("DecoderLauncher: no source configured yet")
-              }
-          }
-      }
-
-      /**
-       * Immediately swap to a new URL — called by [ConfigUpdateReceiver] when
-       * the user changes the stream URL while the target app is already running.
-       * Stops the current decode session and starts a fresh one.
-       */
-      fun restart(streamUrl: String?, mediaUri: String?) {
-          synchronized(this) {
-              FfmpegStreamer.stop()
-              launched = false
-              when {
-                  !mediaUri.isNullOrEmpty()  -> {
-                      Logger.d("DecoderLauncher: restarting for media: $mediaUri")
-                      FfmpegStreamer.startMedia(mediaUri!!)
-                      launched = true
-                  }
-                  !streamUrl.isNullOrEmpty() -> {
-                      Logger.d("DecoderLauncher: restarting for stream: $streamUrl")
-                      FfmpegStreamer.startStream(streamUrl!!)
-                      launched = true
-                  }
-                  else -> Logger.d("DecoderLauncher.restart: no URL supplied — staying stopped")
-              }
-          }
-      }
-
-      /**
-       * Stop the active decoder and allow [ensureLaunched] to re-run
-       * on the next camera frame.
-       */
-      fun stop() {
-          synchronized(this) {
-              FfmpegStreamer.stop()
-              launched = false
-          }
-      }
-
-      /**
-       * Reset without stopping — use when the target process is re-initialised
-       * or a decoder has recovered.  The next [ensureLaunched] call restarts
-       * with fresh RemoteConfig.
-       */
-      fun reset() {
-          launched = false
-      }
-  }
-  
+    /** No-op. */
+    fun reset() {}
+}
