@@ -15,14 +15,12 @@ dependencyResolutionManagement {
         maven {
             url = uri("https://api.xposed.info/")
         }
-        // LibVLC repository from Videolan
-        maven {
-            url = uri("https://artifacts.videolan.org/vlc-android/")
-        }
         // JitPack for any other dependencies
         maven {
             url = uri("https://jitpack.io")
         }
+        // FFmpeg Kit is published to Maven Central — no extra repo needed.
+        // (Removed: LibVLC Videolan repo, no longer used)
     }
 }
 

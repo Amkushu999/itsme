@@ -14,7 +14,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.*
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
@@ -220,7 +219,7 @@ fun DashboardContent(
 
         // ── Stream Player Overlay ──
         if (playerOpen && streamUrl.isNotEmpty()) {
-            StreamPlayerDialog(url = streamUrl, onClose = { playerOpen = false })
+            StreamPreviewDialog(url = streamUrl, onDismiss = { playerOpen = false })
         }
     }
 }
